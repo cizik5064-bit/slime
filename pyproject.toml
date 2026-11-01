@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slime-mc"
-version = "0.1.0"
+version = "1.0.0"
 description = "A friendly Minecraft server manager for PaperMC servers, with a TUI and a CLI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -65,6 +65,7 @@ include = [
   "README.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
+  "RELEASING.md",
   "LICENSE",
   "pyproject.toml",
 ]

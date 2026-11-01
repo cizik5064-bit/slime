@@ -4,7 +4,8 @@
 Он не является пользовательской документацией (это `README.md`).
 
 Последнее обновление: 2026-11-02
-Версия проекта: **0.1.0 (pre-release, не выпущена)**
+Версия проекта: **1.0.0 (подготовлена к первому публичному релизу;
+тег и публикация на PyPI ещё не выполнены)**
 
 ---
 
@@ -55,7 +56,7 @@ v3 отвечают HTTP 200.
 
 ```
 src/slime/
-  __init__.py            версия 0.1.0, константы
+  __init__.py            версия 1.0.0, константы
   __main__.py            python -m slime
   errors.py              SlimeError + подклассы с hint
   config.py              Settings/Paths/Config, TOML без tomli-w
@@ -105,7 +106,7 @@ src/slime/
 - Создано окружение `.venv` (Python 3.14.8), установлены зависимости из
   `.[dev]`: typer 0.27.3, rich 14.3.4, textual 2.1.2, httpx 0.28.1,
   psutil 7.2.2, pytest 9.2.0, respx, ruff, mypy.
-- `slime --version` → `Slime 0.1.0`.
+- `slime --version` → `Slime 1.0.0`.
 - `slime doctor` на временном `SLIME_HOME` → exit 0, 4 ok / 2 info.
 - Живые API: `server versions --project paper`, `server builds 1.21.4`,
   `server builds 26.3`, `java releases` — работают.
@@ -135,11 +136,12 @@ src/slime/
 
 ### Что НЕ сделано / не проверено
 
-1. **Тесты pytest написаны и проходят: 215 passed.** Покрыты
+1. **Тесты pytest написаны и проходят: 217 passed.** Покрыты
    `test_models.py`, `test_properties.py`, `test_config.py`,
    `test_store.py`, `test_checks.py`, `test_papermc.py`, `test_adoptium.py`,
    `test_provision.py`, `test_process.py`, `test_cli.py`, `test_archives.py`,
-   `test_downloads.py`, `test_java.py`.
+   `test_downloads.py`, `test_java.py`, `test_version.py` (версия pyproject =
+   `__version__`, User-Agent содержит версию).
 2. **TUI проверен только headless-смоуком**, не полным ручным сценарием:
    создание реального сервера, установка Java, запуск/остановка.
 3. ~~`ruff check .` и `mypy` не чистые~~ — **исправлено**: оба проходят
@@ -151,8 +153,14 @@ src/slime/
    `.gitattributes`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md` и
    GitHub Actions CI (`.github/workflows/ci.yml`: Windows + Linux,
    Python 3.11–3.14, ruff, mypy, pytest, сборка sdist/wheel). `docs/` пока нет.
-6. **Нет** реального релиза/скриншотов TUI/PyPI-публикации. Локальная сборка
-   `python -m build` проверена: sdist и wheel создаются.
+6. **Релиз 1.0.0 подготовлен, но не опубликован.** Версия поднята в
+   `pyproject.toml` и `__init__.py`, `CHANGELOG.md` переписан под 1.0.0,
+   README обновлён, добавлены `RELEASING.md` и
+   `.github/workflows/release.yml` (тег `v*` → проверка версии → сборка →
+   PyPI Trusted Publishing → GitHub Release). Локальная сборка
+   `python -m build` проверена: sdist и wheel создаются. Осталось: настроить
+   PyPI Trusted Publisher/environment `pypi`, поставить тег `v1.0.0`,
+   запушить и убедиться, что workflow прошёл. Скриншотов TUI пока нет.
 7. **Нет** кросс-процессного `stop`: сервер живёт, пока жив процесс Slime
    (TUI или foreground CLI). Это осознанное решение для v1: на Windows нельзя
    надёжно писать в stdin чужого процесса без RCON. В TUI stop работает, в CLI —
@@ -286,10 +294,10 @@ python -m compileall -q src
 
 ### Версионирование
 
-- Текущая версия — **0.1.0**, это **pre-release**.
-- **После релиза первой версии** (первый публичный релиз, то есть `1.0.0`)
-  каждое существенное изменение программы должно сопровождаться **повышением
-  версии**:
+- Текущая версия — **1.0.0**, первый публичный релиз (подготовлен, тег и
+  публикация выполняются по `RELEASING.md`).
+- **После релиза первой версии** каждое существенное изменение программы
+  должно сопровождаться **повышением версии**:
   - bugfix / небольшое изменение — patch (`1.0.0` → `1.0.1`);
   - новая функциональность — minor (`1.0.1` → `1.1.0`);
   - несовместимые изменения — major (`1.1.0` → `2.0.0`).
@@ -297,8 +305,8 @@ python -m compileall -q src
   - `pyproject.toml` → `[project].version`;
   - `src/slime/__init__.py` → `__version__`;
   - `CHANGELOG.md` (создать, если ещё нет).
-- До первого релиза версию тоже менять осмысленно, но правило «каждое
-  существенное изменение = bump» становится обязательным **после** `1.0.0`.
+- Правило «каждое существенное изменение = bump» действует начиная с
+  `1.0.0`.
 
 ### CONTEXT.md
 
@@ -339,8 +347,10 @@ python -m compileall -q src
    `CHANGELOG.md`, `CONTRIBUTING.md`, CI (GitHub Actions: Windows + Linux,
    Python 3.11–3.14).~~ — **сделано**.
 7. ~~Инициализировать git, сделать первый коммит.~~ — **сделано**.
-8. Подготовить релиз `1.0.0` после стабилизации (пока не начиналось:
-   остаётся живой TUI-сценарий и публикация).
+8. ~~Подготовить релиз `1.0.0`.~~ — **сделано**: версия 1.0.0, CHANGELOG,
+   README, `RELEASING.md`, release-workflow, тест на согласованность версии.
+   Осталось выполнить только публикацию: настроить PyPI Trusted Publisher и
+   environment `pypi`, затем `git tag v1.0.0` + push (см. `RELEASING.md`).
 
 ---
 

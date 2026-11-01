@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from .. import __version__
 from ..errors import ApiError
 
 DEFAULT_BASE_URL = "https://api.adoptium.net/v3"
@@ -83,7 +84,7 @@ class AdoptiumClient:
         self,
         base_url: str = DEFAULT_BASE_URL,
         *,
-        user_agent: str = "Slime/0.1.0",
+        user_agent: str = f"Slime/{__version__}",
         timeout: float = 30.0,
         client: httpx.Client | None = None,
     ) -> None:

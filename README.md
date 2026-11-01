@@ -1,6 +1,7 @@
 # Slime
 
 [![CI](https://github.com/slime-mc/slime/actions/workflows/ci.yml/badge.svg)](https://github.com/slime-mc/slime/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/slime-mc.svg)](https://pypi.org/project/slime-mc/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
@@ -10,8 +11,9 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 0.1.0 — early development.** The architecture and core features are
-> implemented, but this is not a stable release yet. Expect rough edges.
+> **Status: 1.0.0 — first public release.** Core features are implemented and
+> covered by tests, but Slime is still young. Expect rough edges and please
+> report them on the issue tracker.
 
 ---
 
@@ -78,7 +80,29 @@ you.
 
 ## Installation
 
-Slime is not on PyPI yet. Install from source:
+Slime requires Python 3.11 or newer.
+
+The recommended way is an isolated installation with
+[pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install slime-mc
+```
+
+Or install it into the current environment with pip:
+
+```bash
+pip install slime-mc
+```
+
+Run it:
+
+```bash
+slime --version
+slime
+```
+
+### From source (development)
 
 ```bash
 git clone https://github.com/slime-mc/slime.git
@@ -100,15 +124,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Run it:
-
-```bash
-slime --version
-slime
-```
-
-When the package is published, `pipx install slime-mc` will be the recommended
-way to get an isolated installation.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
 ## Quick start (CLI)
 
@@ -344,13 +360,14 @@ services.
 - [x] Adoptium Temurin client and Java manager
 - [x] CLI (servers, Java, diagnostics, config)
 - [x] Textual TUI (dashboard, server console, create wizard, Java, doctor)
-- [ ] Full test suite and CI on Windows + Linux
-- [ ] First public release (1.0.0)
+- [x] Full test suite and CI on Windows + Linux
+- [x] First public release (1.0.0)
+- [x] Packaging on PyPI (`slime-mc`)
 - [ ] Backups and restore
 - [ ] Plugin/mod browser (Modrinth / Hangar)
 - [ ] RCON console and cross-process server control
 - [ ] Legacy Windows 7/8.1 build
-- [ ] Packaging (PyPI, standalone binaries via PyInstaller)
+- [ ] Standalone binaries via PyInstaller
 
 ## Disclaimer
 

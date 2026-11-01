@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-02
+## [1.0.0] - 2026-11-02
 
-First internal pre-release. Not published to PyPI yet.
+First public release. This consolidates the 0.1.0 development series, which was
+never published. Slime is distributed as `slime-mc` on PyPI and installs the
+`slime` entry point.
 
 ### Added
 
@@ -32,6 +34,10 @@ First internal pre-release. Not published to PyPI yet.
   overrides.
 - Test suite covering models, properties, config, store, checks, API clients,
   provisioning, process handling, CLI, archives, downloads and Java management.
+- GitHub Actions CI for Windows and Linux on Python 3.11-3.14, plus a tagged
+  release workflow that builds, publishes to PyPI and creates a GitHub release.
+- Project infrastructure: MIT license, changelog, contribution guide, release
+  checklist, `.gitignore` and `.gitattributes`.
 
 ### Changed
 
@@ -39,6 +45,8 @@ First internal pre-release. Not published to PyPI yet.
   tolerant of the older shape.
 - Calendar-based Minecraft versions `26.x+` now default to Java 25.
 - Migrated TUI imports to Textual 2.x (`from textual import work`).
+- API clients now derive their default `User-Agent` from the package version
+  instead of hard-coding it.
 
 ### Fixed
 
@@ -57,5 +65,5 @@ First internal pre-release. Not published to PyPI yet.
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/slime-mc/slime/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/slime-mc/slime/releases/tag/v0.1.0
+[Unreleased]: https://github.com/slime-mc/slime/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/slime-mc/slime/releases/tag/v1.0.0

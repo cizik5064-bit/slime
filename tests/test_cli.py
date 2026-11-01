@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from slime import __version__
 from slime.cli import app
 from slime.models import BuildInfo, DownloadInfo, Server
 
@@ -62,7 +63,7 @@ class FakePaperMC:
 def test_version(runner: CliRunner, home: Path) -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "Slime 0.1.0" in result.output
+    assert f"Slime {__version__}" in result.output
 
 
 def test_config_show_json(runner: CliRunner, home: Path) -> None:

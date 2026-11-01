@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
+from .. import __version__
 from ..errors import ApiError
 from ..models import BuildInfo, DownloadInfo, sort_versions
 
@@ -62,7 +63,7 @@ class PaperMCClient:
         self,
         base_url: str = DEFAULT_BASE_URL,
         *,
-        user_agent: str = "Slime/0.1.0",
+        user_agent: str = f"Slime/{__version__}",
         timeout: float = 30.0,
         client: httpx.Client | None = None,
     ) -> None:

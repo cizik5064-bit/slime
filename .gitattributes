@@ -1,0 +1,33 @@
+# Normalize line endings to LF in the repository.
+* text=auto eol=lf
+
+# Python sources
+*.py text diff=python
+*.pyi text diff=python
+*.toml text
+*.tcss text
+*.md text
+*.yml text
+*.yaml text
+*.json text
+
+# Shell and Windows scripts keep their native line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.jar binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.whl binary
+
+# Do not count vendored or generated files in GitHub language statistics.
+tests/fixtures/** linguist-vendored

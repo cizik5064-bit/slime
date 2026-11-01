@@ -1,0 +1,323 @@
+"""Minecraft server process management with a live console."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import os
+import re
+from collections import deque
+from collections.abc import Callable
+from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
+from typing import TextIO
+
+from .errors import ServerError
+from .models import Server
+
+_READY_RE = re.compile(r"(Done \(|Listening on /|Done in |Done \()", re.IGNORECASE)
+_LINE_LIMIT = 3000
+
+
+class ServerState(StrEnum):
+    STOPPED = "stopped"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    CRASHED = "crashed"
+
+
+LineListener = Callable[[str], None]
+StateListener = Callable[[ServerState], None]
+ExitListener = Callable[[int], None]
+
+
+class ServerProcess:
+    """Owns one Java process and its console stream.
+
+    The process is intentionally tied to the lifetime of the Slime process that
+    started it: the CLI runs a server in the foreground, and the TUI keeps it in
+    memory while the app is open. This avoids orphaned servers and makes
+    console I/O reliable on Windows, where attaching to another process's stdin
+    is not possible without RCON.
+    """
+
+    def __init__(
+        self,
+        server: Server,
+        server_dir: Path,
+        java_path: str | Path,
+        *,
+        log_dir: Path,
+        extra_args: list[str] | None = None,
+        command_override: list[str] | None = None,
+    ) -> None:
+        self.server = server
+        self.server_dir = Path(server_dir)
+        self.java_path = Path(java_path)
+        self.log_dir = Path(log_dir)
+        self.extra_args = list(extra_args if extra_args is not None else server.extra_args)
+        self.command_override = command_override
+
+        self._process: asyncio.subprocess.Process | None = None
+        self._reader_task: asyncio.Task[None] | None = None
+        self._state = ServerState.STOPPED
+        self._exit_code: int | None = None
+        self._lines: deque[str] = deque(maxlen=_LINE_LIMIT)
+        self._line_listeners: list[LineListener] = []
+        self._state_listeners: list[StateListener] = []
+        self._exit_listeners: list[ExitListener] = []
+        self._log_handle: TextIO | None = None
+        self._started_at: datetime | None = None
+
+    # --------------------------------------------------------------- listeners
+    def add_line_listener(self, listener: LineListener) -> None:
+        if listener not in self._line_listeners:
+            self._line_listeners.append(listener)
+
+    def remove_line_listener(self, listener: LineListener) -> None:
+        with contextlib.suppress(ValueError):
+            self._line_listeners.remove(listener)
+
+    def add_state_listener(self, listener: StateListener) -> None:
+        if listener not in self._state_listeners:
+            self._state_listeners.append(listener)
+
+    def remove_state_listener(self, listener: StateListener) -> None:
+        with contextlib.suppress(ValueError):
+            self._state_listeners.remove(listener)
+
+    def add_exit_listener(self, listener: ExitListener) -> None:
+        if listener not in self._exit_listeners:
+            self._exit_listeners.append(listener)
+
+    def remove_exit_listener(self, listener: ExitListener) -> None:
+        with contextlib.suppress(ValueError):
+            self._exit_listeners.remove(listener)
+
+    # ---------------------------------------------------------------- properties
+    @property
+    def state(self) -> ServerState:
+        return self._state
+
+    @property
+    def exit_code(self) -> int | None:
+        return self._exit_code
+
+    @property
+    def pid(self) -> int | None:
+        return self._process.pid if self._process is not None else None
+
+    @property
+    def is_running(self) -> bool:
+        return self._process is not None and self._process.returncode is None
+
+    @property
+    def started_at(self) -> datetime | None:
+        return self._started_at
+
+    @property
+    def lines(self) -> list[str]:
+        return list(self._lines)
+
+    def uptime(self) -> float:
+        if self._started_at is None:
+            return 0.0
+        return max(0.0, (datetime.now(UTC) - self._started_at).total_seconds())
+
+    # -------------------------------------------------------------------- start
+    def build_command(self) -> list[str]:
+        if self.command_override is not None:
+            return list(self.command_override)
+        command = [
+            str(self.java_path),
+            f"-Xms{self.server.memory_mb}M",
+            f"-Xmx{self.server.memory_mb}M",
+            "-Dfile.encoding=UTF-8",
+            "-jar",
+            self.server.jar_file,
+        ]
+        if not self.server.is_proxy:
+            command.append("--nogui")
+        command.extend(self.extra_args)
+        return command
+
+    async def start(self) -> None:
+        if self._state in (ServerState.STARTING, ServerState.RUNNING, ServerState.STOPPING):
+            raise ServerError(f"Server '{self.server.name}' is already running.")
+        if self.command_override is None:
+            if not self.java_path.is_file():
+                raise ServerError(
+                    f"Java executable not found: {self.java_path}",
+                    hint=f"Install Java with: slime java install {self.server.java_major}",
+                )
+            jar = self.server_dir / self.server.jar_file
+            if not jar.is_file():
+                raise ServerError(
+                    f"Server jar not found: {jar}",
+                    hint="Recreate the server or download the jar manually.",
+                )
+
+        self.server_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = self.log_dir / f"{self.server.name}.log"
+        try:
+            self._log_handle = log_path.open("a", encoding="utf-8", errors="replace")
+            stamp = datetime.now(UTC).isoformat(timespec="seconds")
+            self._log_handle.write(f"\n=== {stamp} starting {self.server.name} ===\n")
+            self._log_handle.flush()
+        except OSError:
+            self._log_handle = None
+
+        environment = os.environ.copy()
+        if self.command_override is None:
+            environment["JAVA_HOME"] = str(self.java_path.parent.parent)
+
+        self._set_state(ServerState.STARTING)
+        self._exit_code = None
+        self._started_at = datetime.now(UTC)
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *self.build_command(),
+                cwd=str(self.server_dir),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=environment,
+            )
+        except OSError as exc:
+            self._close_log()
+            self._set_state(ServerState.STOPPED)
+            raise ServerError(
+                f"Could not start '{self.server.name}': {exc}",
+                hint="Check that Java is installed and the server directory is writable.",
+            ) from exc
+
+        self._write_pid()
+        self._reader_task = asyncio.create_task(self._pump(), name=f"slime-console-{self.server.name}")
+
+    def _write_pid(self) -> None:
+        if self.pid is None:
+            return
+        with contextlib.suppress(OSError):
+            (self.server_dir / "slime.pid").write_text(f"{self.pid}\n", encoding="utf-8")
+
+    def _clear_pid(self) -> None:
+        (self.server_dir / "slime.pid").unlink(missing_ok=True)
+
+    # --------------------------------------------------------------------- pump
+    async def _pump(self) -> None:
+        process = self._process
+        if process is None or process.stdout is None:
+            return
+        code = 0
+        cancelled = False
+        try:
+            while True:
+                raw = await process.stdout.readline()
+                if not raw:
+                    break
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                self._lines.append(line)
+                if self._log_handle is not None:
+                    try:
+                        self._log_handle.write(line + "\n")
+                        self._log_handle.flush()
+                    except OSError:
+                        pass
+                if self._state is ServerState.STARTING and _READY_RE.search(line):
+                    self._set_state(ServerState.RUNNING)
+                for line_listener in list(self._line_listeners):
+                    try:
+                        line_listener(line)
+                    except Exception:  # pragma: no cover - listener bugs
+                        continue
+            code = await process.wait()
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        finally:
+            self._exit_code = code
+            self._clear_pid()
+            self._close_log()
+            if not cancelled:
+                if self._state is ServerState.STOPPING or code == 0:
+                    self._set_state(ServerState.STOPPED)
+                else:
+                    self._set_state(ServerState.CRASHED)
+                for exit_listener in list(self._exit_listeners):
+                    try:
+                        exit_listener(code)
+                    except Exception:  # pragma: no cover
+                        continue
+
+    def _close_log(self) -> None:
+        if self._log_handle is not None:
+            with contextlib.suppress(OSError):
+                self._log_handle.close()
+            self._log_handle = None
+
+    # ------------------------------------------------------------------ console
+    async def send(self, command: str) -> None:
+        command = command.strip()
+        if not command:
+            return
+        if not self.is_running or self._process is None or self._process.stdin is None:
+            raise ServerError(f"Server '{self.server.name}' is not running.")
+        try:
+            self._process.stdin.write((command + "\n").encode("utf-8"))
+            await self._process.stdin.drain()
+        except (OSError, RuntimeError) as exc:
+            raise ServerError(f"Could not send command to the server: {exc}") from exc
+
+    # --------------------------------------------------------------------- stop
+    async def stop(self, timeout: float = 30.0) -> None:
+        if not self.is_running or self._process is None:
+            self._set_state(ServerState.STOPPED)
+            return
+        self._set_state(ServerState.STOPPING)
+        with contextlib.suppress(ServerError):
+            await self.send("stop")
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=timeout)
+            return
+        except TimeoutError:
+            pass
+        with contextlib.suppress(ProcessLookupError, OSError):
+            self._process.terminate()
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=10)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                self._process.kill()
+            await self._process.wait()
+
+    async def wait(self) -> int:
+        if self._process is None:
+            return self._exit_code or 0
+        return await self._process.wait()
+
+    def terminate_now(self) -> None:
+        """Best-effort synchronous termination, used when the app is closing."""
+        if self._process is not None and self._process.returncode is None:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                self._process.terminate()
+
+    # -------------------------------------------------------------------- state
+    def _set_state(self, state: ServerState) -> None:
+        if state is self._state:
+            return
+        self._state = state
+        for listener in list(self._state_listeners):
+            try:
+                listener(state)
+            except Exception:  # pragma: no cover
+                continue
+
+    async def __aenter__(self) -> ServerProcess:
+        await self.start()
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.stop()

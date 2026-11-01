@@ -1,0 +1,1248 @@
+"""Command-line interface for Slime."""
+
+from __future__ import annotations
+
+import asyncio
+import signal
+import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import asdict
+from pathlib import Path
+from typing import Annotated, NoReturn, cast
+
+import typer
+from rich.console import Console
+from rich.markup import escape
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
+
+from . import APP_NAME, PROJECT_URL, __version__
+from .api.papermc import PaperMCClient
+from .checks import CheckResult, CheckStatus, has_failures, run_checks, summarize
+from .config import Config, Settings
+from .errors import JavaError, ServerError, SlimeError
+from .java import JavaManager
+from .logging_setup import setup_logging
+from .models import (
+    PROJECTS,
+    JavaInstall,
+    Project,
+    Server,
+    required_java_major,
+    validate_memory,
+)
+from .process import ServerProcess, ServerState
+from .properties import write_eula
+from .provision import CreateRequest, Provisioner
+from .store import ServerStore
+
+console = Console()
+error_console = Console(stderr=True)
+
+# ---------------------------------------------------------------------------
+# Application context
+# ---------------------------------------------------------------------------
+
+
+class AppContext:
+    """Lazily-created services shared by CLI commands."""
+
+    def __init__(self, config: Config, *, verbose: bool = False) -> None:
+        self.config = config
+        self.verbose = verbose
+        self._store: ServerStore | None = None
+        self._papermc: PaperMCClient | None = None
+        self._java: JavaManager | None = None
+        self._provisioner: Provisioner | None = None
+
+    @property
+    def store(self) -> ServerStore:
+        if self._store is None:
+            self._store = ServerStore(self.config)
+        return self._store
+
+    @property
+    def papermc(self) -> PaperMCClient:
+        if self._papermc is None:
+            self._papermc = PaperMCClient(
+                self.config.settings.fill_base_url,
+                user_agent=self.config.settings.user_agent,
+                timeout=self.config.settings.request_timeout,
+            )
+        return self._papermc
+
+    @property
+    def java_manager(self) -> JavaManager:
+        if self._java is None:
+            self._java = JavaManager(self.config)
+        return self._java
+
+    @property
+    def provisioner(self) -> Provisioner:
+        if self._provisioner is None:
+            self._provisioner = Provisioner(
+                self.config, self.store, self.papermc, self.java_manager
+            )
+        return self._provisioner
+
+
+def _ctx(context: typer.Context) -> AppContext:
+    return cast(AppContext, context.obj)
+
+
+def _fail(error: SlimeError) -> NoReturn:
+    error_console.print(f"[bold red]Error:[/bold red] {escape(error.message)}")
+    if error.hint:
+        error_console.print(f"[yellow]Hint:[/yellow] {escape(error.hint)}")
+    raise typer.Exit(1)
+
+
+@contextmanager
+def _errors() -> Iterator[None]:
+    try:
+        yield
+    except SlimeError as error:
+        _fail(error)
+
+
+# ---------------------------------------------------------------------------
+# Root app
+# ---------------------------------------------------------------------------
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"{APP_NAME} {__version__}")
+        raise typer.Exit()
+
+
+app = typer.Typer(
+    name="slime",
+    help=(
+        "[bold green]Slime[/bold green] — a friendly Minecraft server manager.\n\n"
+        "Run [cyan]slime[/cyan] with no arguments to open the TUI."
+    ),
+    no_args_is_help=False,
+    invoke_without_command=True,
+    add_completion=True,
+    rich_markup_mode="rich",
+    epilog=f"Documentation: {PROJECT_URL}",
+)
+
+server_app = typer.Typer(
+    help="Create, inspect and run Minecraft servers.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+java_app = typer.Typer(
+    help="Install and inspect Eclipse Temurin (Adoptium) JDKs.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+config_app = typer.Typer(
+    help="Show or change Slime settings.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+app.add_typer(server_app, name="server")
+app.add_typer(java_app, name="java")
+app.add_typer(config_app, name="config")
+
+
+@app.callback()
+def _root(
+    context: typer.Context,
+    home: Annotated[
+        Path | None,
+        typer.Option(
+            "--home",
+            help="Slime home directory (default: ~/.slime).",
+            envvar="SLIME_HOME",
+            show_default=False,
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Enable debug logging."),
+    ] = False,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the Slime version and exit.",
+        ),
+    ] = False,
+) -> None:
+    if context.invoked_subcommand is None:
+        if sys.stdout.isatty():
+            from .tui.app import run_tui
+
+            run_tui(Config(home))
+            raise typer.Exit()
+        console.print(context.get_help())
+        raise typer.Exit()
+
+    with _errors():
+        config = Config(home)
+    setup_logging(config.paths, verbose=verbose)
+    context.obj = AppContext(config, verbose=verbose)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _status_text(status: CheckStatus) -> str:
+    color = {
+        CheckStatus.OK: "green",
+        CheckStatus.INFO: "cyan",
+        CheckStatus.WARN: "yellow",
+        CheckStatus.FAIL: "red",
+    }[status]
+    return f"[{color}]{status.value.upper()}[/{color}]"
+
+
+def _print_checks(results: list[CheckResult]) -> None:
+    table = Table(title="Environment check", header_style="bold")
+    table.add_column("Check", style="bold")
+    table.add_column("Status")
+    table.add_column("Details")
+    table.add_column("Hint", style="dim")
+    for result in results:
+        table.add_row(
+            escape(result.title),
+            _status_text(result.status),
+            escape(result.message),
+            escape(result.hint or ""),
+        )
+    console.print(table)
+    counts = summarize(results)
+    console.print(
+        f"[green]{counts[CheckStatus.OK]} ok[/green]  "
+        f"[cyan]{counts[CheckStatus.INFO]} info[/cyan]  "
+        f"[yellow]{counts[CheckStatus.WARN]} warning(s)[/yellow]  "
+        f"[red]{counts[CheckStatus.FAIL]} error(s)[/red]"
+    )
+
+
+def _print_server_table(servers: list[Server], store: ServerStore) -> None:
+    table = Table(title="Servers", header_style="bold")
+    table.add_column("Name", style="bold")
+    table.add_column("Project")
+    table.add_column("Version")
+    table.add_column("Build", justify="right")
+    table.add_column("Port", justify="right")
+    table.add_column("Memory", justify="right")
+    table.add_column("Java", justify="right")
+    table.add_column("Status")
+    for server in servers:
+        running, pid = store.is_running(server.name)
+        status = f"[green]running[/green] (pid {pid})" if running else "[dim]stopped[/dim]"
+        table.add_row(
+            escape(server.name),
+            server.project.display_name,
+            escape(server.minecraft_version),
+            str(server.build),
+            str(server.port),
+            f"{server.memory_mb} MB",
+            str(server.java_major),
+            status,
+        )
+    console.print(table)
+
+
+def _server_payload(server: Server, store: ServerStore) -> dict[str, object]:
+    running, pid = store.is_running(server.name)
+    payload = server.to_dict()
+    payload["running"] = running
+    payload["pid"] = pid
+    payload["path"] = str(store.path(server.name))
+    return payload
+
+
+def _java_payload(install: JavaInstall) -> dict[str, object]:
+    return install.to_dict()
+
+
+def _prompt_project() -> Project:
+    table = Table(title="Choose a project", show_header=False, box=None)
+    table.add_column("Option", style="bold cyan")
+    table.add_column("Project")
+    table.add_column("Kind")
+    for index, project in enumerate(PROJECTS, start=1):
+        table.add_row(str(index), project.display_name, project.kind)
+    console.print(table)
+    answer = Prompt.ask(
+        "Project",
+        choices=[project.value for project in PROJECTS],
+        default=Project.PAPER.value,
+    )
+    return Project.parse(answer)
+
+
+def _prompt_version(context: AppContext, project: Project) -> str:
+    try:
+        versions = context.papermc.versions(project.value)
+    except SlimeError:
+        return Prompt.ask("Minecraft version (or 'latest')", default="latest")
+    table = Table(title=f"{project.display_name} versions", show_header=False, box=None)
+    table.add_column("Version", style="cyan")
+    table.add_column("Version", style="cyan")
+    table.add_column("Version", style="cyan")
+    latest = versions[:18]
+    rows = [latest[index : index + 3] for index in range(0, len(latest), 3)]
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
+    answer = Prompt.ask(
+        "Minecraft version (or 'latest')",
+        default=versions[0] if versions else "latest",
+    ).strip()
+    return "" if answer.lower() in {"", "latest"} else answer
+
+
+def _confirm_eula(*, default: bool = False) -> bool:
+    console.print(
+        Panel(
+            "Minecraft servers require you to accept the Minecraft End User "
+            "License Agreement.\n\nRead it here: [link=https://aka.ms/MinecraftEULA]"
+            "https://aka.ms/MinecraftEULA[/link]\n\n"
+            "Slime only writes [bold]eula=true[/bold] if you explicitly agree.",
+            title="Minecraft EULA",
+            border_style="yellow",
+        )
+    )
+    return Confirm.ask("Do you accept the Minecraft EULA?", default=default)
+
+
+# ---------------------------------------------------------------------------
+# TUI
+# ---------------------------------------------------------------------------
+
+
+@app.command("tui")
+def tui_command(context: typer.Context) -> None:
+    """Open the full-screen terminal interface."""
+    from .tui.app import run_tui
+
+    run_tui(_ctx(context).config)
+
+
+@app.command("doctor", rich_help_panel="Diagnostics")
+def doctor_command(
+    context: typer.Context,
+    server: Annotated[
+        str | None,
+        typer.Option("--server", "-s", help="Check one server instead of the whole setup."),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """Check Python, OS, disk, Java, ports, EULA and server files."""
+    app_context = _ctx(context)
+    with _errors():
+        target = app_context.store.get(server) if server else None
+        results = run_checks(
+            app_context.config,
+            app_context.store,
+            app_context.java_manager,
+            server=target,
+        )
+
+    if as_json:
+        console.print_json(
+            data=[
+                {
+                    "id": result.id,
+                    "title": result.title,
+                    "status": result.status.value,
+                    "message": result.message,
+                    "hint": result.hint,
+                    "scope": result.scope,
+                }
+                for result in results
+            ]
+        )
+    else:
+        _print_checks(results)
+
+    if has_failures(results):
+        raise typer.Exit(2)
+
+
+# ---------------------------------------------------------------------------
+# Server commands
+# ---------------------------------------------------------------------------
+
+
+@server_app.command("list")
+def server_list(
+    context: typer.Context,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """List configured servers."""
+    app_context = _ctx(context)
+    with _errors():
+        servers = app_context.store.list()
+
+    if as_json:
+        console.print_json(
+            data=[_server_payload(server, app_context.store) for server in servers]
+        )
+        return
+    if not servers:
+        console.print("[dim]No servers yet.[/dim]")
+        console.print("Create one with: [cyan]slime server create my-server[/cyan]")
+        return
+    _print_server_table(servers, app_context.store)
+
+
+@server_app.command("create")
+def server_create(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name, also used as the directory name.")],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", "-p", help="paper, folia, velocity or waterfall."),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option("--version", help="Minecraft version (default: latest)."),
+    ] = None,
+    build: Annotated[
+        int | None,
+        typer.Option("--build", "-b", help="Exact build number (default: latest)."),
+    ] = None,
+    channel: Annotated[
+        str,
+        typer.Option("--channel", help="Build channel: STABLE, BETA, ALPHA or ANY."),
+    ] = "STABLE",
+    memory: Annotated[
+        int | None,
+        typer.Option("--memory", "-m", help="Memory limit in MB (default from config)."),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option("--port", help="Server port (default from config)."),
+    ] = None,
+    java: Annotated[
+        int | None,
+        typer.Option("--java", help="Java major version (default: required by the project)."),
+    ] = None,
+    accept_eula: Annotated[
+        bool,
+        typer.Option(
+            "--accept-eula",
+            help="Accept https://aka.ms/MinecraftEULA and write eula=true.",
+        ),
+    ] = False,
+    motd: Annotated[
+        str | None,
+        typer.Option("--motd", help="Message of the day written to server.properties."),
+    ] = None,
+) -> None:
+    """Download a PaperMC build and create a new server directory."""
+    app_context = _ctx(context)
+    interactive = sys.stdin.isatty()
+
+    with _errors():
+        if project is None:
+            if not interactive:
+                raise ServerError(
+                    "Missing --project.",
+                    hint="Supported projects: " + ", ".join(p.value for p in PROJECTS),
+                )
+            project_obj = _prompt_project()
+        else:
+            project_obj = Project.parse(project)
+
+        channel = channel.strip().upper()
+        if channel not in {"STABLE", "BETA", "ALPHA", "ANY"}:
+            raise ServerError(
+                f"Invalid channel '{channel}'.",
+                hint="Use STABLE, BETA, ALPHA or ANY.",
+            )
+
+        if version is None:
+            version = _prompt_version(app_context, project_obj) if interactive else ""
+        version = version.strip()
+
+        accepted = accept_eula
+        if not project_obj.is_proxy and not accepted:
+            if interactive:
+                accepted = _confirm_eula()
+            else:
+                console.print(
+                    "[yellow]EULA not accepted.[/yellow] The server will not start until "
+                    f"you run: [cyan]slime server eula {name} --accept[/cyan]"
+                )
+
+        request = CreateRequest(
+            name=name,
+            project=project_obj,
+            version=version,
+            build=build,
+            channel=channel,
+            memory_mb=memory,
+            port=port,
+            java_major=java,
+            accept_eula=accepted,
+            motd=motd,
+        )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Preparing…", total=None)
+
+            def on_progress(stage: str, done: int, total: int | None) -> None:
+                progress.update(task, description=stage, completed=done, total=total)
+
+            server = app_context.provisioner.create(request, progress=on_progress)
+
+    console.print(
+        Panel(
+            f"[bold green]Server created[/bold green]\n\n"
+            f"Name:     [cyan]{escape(server.name)}[/cyan]\n"
+            f"Project:  {server.project.display_name} {escape(server.minecraft_version)} "
+            f"(build {server.build})\n"
+            f"Memory:   {server.memory_mb} MB\n"
+            f"Port:     {server.port}\n"
+            f"Java:     {server.java_major}\n"
+            f"Location: {escape(str(app_context.store.path(server.name)))}",
+            title=APP_NAME,
+            border_style="green",
+        )
+    )
+    console.print(
+        "Next steps:\n"
+        f"  1. [cyan]slime java install {server.java_major}[/cyan]\n"
+        f"  2. [cyan]slime server run {server.name}[/cyan]\n"
+        "  or open the TUI: [cyan]slime[/cyan]"
+    )
+    if not server.is_proxy and not server.eula_accepted:
+        console.print(
+            f"[yellow]Remember:[/yellow] run [cyan]slime server eula {server.name} --accept[/cyan] "
+            "after reading the EULA."
+        )
+
+
+@server_app.command("info")
+def server_info(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    checks: Annotated[
+        bool, typer.Option("--checks", help="Also run environment checks for this server.")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """Show details for one server."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        running, pid = app_context.store.is_running(name)
+        java_install = app_context.java_manager.find_for(server)
+        results = (
+            run_checks(
+                app_context.config,
+                app_context.store,
+                app_context.java_manager,
+                server=server,
+            )
+            if checks
+            else None
+        )
+
+    if as_json:
+        payload = _server_payload(server, app_context.store)
+        payload["java"] = _java_payload(java_install) if java_install else None
+        if results is not None:
+            payload["checks"] = [
+                {
+                    "id": result.id,
+                    "status": result.status.value,
+                    "message": result.message,
+                    "hint": result.hint,
+                }
+                for result in results
+            ]
+        console.print_json(data=payload)
+        return
+
+    table = Table(title=f"Server: {server.name}", show_header=False, box=None)
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("Project", f"{server.project.display_name} ({server.kind})")
+    table.add_row("Minecraft", server.minecraft_version)
+    table.add_row("Build", str(server.build))
+    table.add_row("Status", f"running (pid {pid})" if running else "stopped")
+    table.add_row("Path", str(app_context.store.path(server.name)))
+    table.add_row("Jar", server.jar_file)
+    table.add_row("Port", str(server.port))
+    table.add_row("Memory", f"{server.memory_mb} MB")
+    table.add_row("Java required", str(server.java_major))
+    table.add_row(
+        "Java resolved",
+        str(java_install.path) if java_install else "[red]not installed[/red]",
+    )
+    table.add_row("EULA", "accepted" if server.eula_accepted else "not accepted")
+    table.add_row("Created", server.created_at)
+    console.print(table)
+    if results is not None:
+        _print_checks(results)
+
+
+@server_app.command("run")
+def server_run(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    memory: Annotated[
+        int | None,
+        typer.Option("--memory", "-m", help="Override memory for this run (MB)."),
+    ] = None,
+    java: Annotated[
+        Path | None,
+        typer.Option("--java", help="Override the Java executable for this run."),
+    ] = None,
+    no_console: Annotated[
+        bool,
+        typer.Option("--no-console", help="Do not read commands from stdin."),
+    ] = False,
+) -> None:
+    """Start a server in the foreground and attach the console.
+
+    Press Ctrl+C or type ``stop`` to shut it down gracefully.
+    """
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        running, pid = app_context.store.is_running(name)
+        if running:
+            raise ServerError(
+                f"Server '{name}' is already running (pid {pid}).",
+                hint="Stop it from the TUI or from the console where it was started.",
+            )
+        if memory is not None:
+            server.memory_mb = validate_memory(memory)
+        if java is not None:
+            install = app_context.java_manager.inspect(java)
+            if install is None:
+                raise JavaError(f"{java} is not a working Java executable.")
+            if install.major != server.java_major:
+                raise JavaError(
+                    f"{java} is Java {install.major}, but this server requires Java "
+                    f"{server.java_major}."
+                )
+            server.java_path = str(install.path)
+        java_install = app_context.java_manager.require_for(server)
+
+        if not server.is_proxy and not server.eula_accepted:
+            if sys.stdin.isatty() and _confirm_eula():
+                write_eula(app_context.store.path(name) / "eula.txt", True)
+                server.eula_accepted = True
+                app_context.store.save(server)
+            else:
+                raise ServerError(
+                    "The Minecraft EULA has not been accepted.",
+                    hint=f"Read https://aka.ms/MinecraftEULA, then run: "
+                    f"slime server eula {name} --accept",
+                )
+
+        jar = app_context.store.path(name) / server.jar_file
+        if not jar.is_file():
+            raise ServerError(
+                f"Server jar is missing: {jar}",
+                hint="Recreate the server or download the jar manually.",
+            )
+        server_dir = app_context.store.path(name)
+
+    code = asyncio.run(
+        _run_foreground(
+            app_context,
+            server,
+            java_install,
+            server_dir=server_dir,
+            no_console=no_console,
+        )
+    )
+    if code != 0:
+        raise typer.Exit(code)
+
+
+async def _run_foreground(
+    app_context: AppContext,
+    server: Server,
+    java_install: JavaInstall,
+    *,
+    server_dir: Path,
+    no_console: bool,
+) -> int:
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+
+    def handle_sigint(*_: object) -> None:
+        loop.call_soon_threadsafe(stop_event.set)
+
+    previous_handler = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    process = ServerProcess(
+        server,
+        server_dir,
+        java_install.path,
+        log_dir=app_context.config.paths.logs,
+    )
+    process.add_line_listener(
+        lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
+    )
+
+    def on_state(state: ServerState) -> None:
+        if state is ServerState.RUNNING:
+            console.print("[green]Server is ready.[/green]")
+        elif state is ServerState.CRASHED:
+            console.print("[red]Server exited unexpectedly.[/red]")
+
+    process.add_state_listener(on_state)
+
+    try:
+        await process.start()
+        console.print(
+            f"[green]Started[/green] {server.name} (pid {process.pid}). "
+            "Press [bold]Ctrl+C[/bold] to stop."
+        )
+        if not no_console and sys.stdin.isatty():
+            console.print("[dim]Type a command and press Enter; 'stop' shuts it down.[/dim]")
+            threading.Thread(
+                target=_console_thread,
+                args=(loop, process),
+                daemon=True,
+                name="slime-console-input",
+            ).start()
+
+        wait_task = asyncio.create_task(process.wait())
+        stop_task = asyncio.create_task(stop_event.wait())
+        _done, pending = await asyncio.wait(
+            {wait_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        if process.is_running:
+            console.print("[yellow]Stopping server…[/yellow]")
+            await process.stop()
+        return process.exit_code or 0
+    finally:
+        if process.is_running:
+            await process.stop()
+        signal.signal(signal.SIGINT, previous_handler)
+
+
+def _console_thread(loop: asyncio.AbstractEventLoop, process: ServerProcess) -> None:
+    while process.is_running:
+        try:
+            line = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if not line:
+            continue
+        if line.lower() in {"exit", "quit"}:
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(process.send(line), loop)
+            future.result(timeout=15)
+        except Exception as exc:
+            console.print(f"[red]Command failed:[/red] {escape(str(exc))}")
+
+
+@server_app.command("eula")
+def server_eula(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    accept: Annotated[
+        bool,
+        typer.Option("--accept/--revoke", help="Accept or revoke the Minecraft EULA."),
+    ] = True,
+) -> None:
+    """Accept (or revoke) the Minecraft EULA for a server."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        if server.is_proxy:
+            console.print(
+                f"[cyan]{server.project.display_name}[/cyan] is a proxy and does not "
+                "require eula.txt."
+            )
+            return
+        write_eula(app_context.store.path(name) / "eula.txt", accepted=accept)
+        server.eula_accepted = accept
+        app_context.store.save(server)
+
+    if accept:
+        console.print(
+            f"[green]EULA accepted[/green] for '{name}'. "
+            "You confirmed https://aka.ms/MinecraftEULA."
+        )
+    else:
+        console.print(f"[yellow]EULA revoked[/yellow] for '{name}'.")
+
+
+@server_app.command("delete")
+def server_delete(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")] = False,
+    keep_files: Annotated[
+        bool,
+        typer.Option("--keep-files", help="Unregister the server but keep its directory."),
+    ] = False,
+) -> None:
+    """Delete a server and its world files."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        running, pid = app_context.store.is_running(name)
+        if running:
+            raise ServerError(
+                f"Server '{name}' is running (pid {pid}).",
+                hint="Stop it first, then delete it.",
+            )
+        if not yes:
+            if not sys.stdin.isatty():
+                raise ServerError(
+                    "Refusing to delete without confirmation.",
+                    hint="Pass --yes to delete non-interactively.",
+                )
+            action = "Unregister" if keep_files else "Delete"
+            if not Confirm.ask(
+                f"{action} '{server.name}' and all its files?", default=False
+            ):
+                console.print("Cancelled.")
+                raise typer.Exit()
+        path = app_context.store.path(name)
+        app_context.store.delete(name, keep_files=keep_files)
+    if keep_files:
+        console.print(f"[green]Unregistered[/green] '{name}'. Files kept at {escape(str(path))}.")
+    else:
+        console.print(f"[green]Deleted[/green] '{name}' and {escape(str(path))}.")
+
+
+@server_app.command("path")
+def server_path(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+) -> None:
+    """Print the server directory (useful in scripts)."""
+    app_context = _ctx(context)
+    with _errors():
+        app_context.store.get(name)
+    console.print(str(app_context.store.path(name)))
+
+
+@server_app.command("versions")
+def server_versions(
+    context: typer.Context,
+    project: Annotated[
+        str, typer.Option("--project", "-p", help="paper, folia, velocity or waterfall.")
+    ] = "paper",
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum versions to show.")] = 30,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """List Minecraft versions available from the PaperMC Fill API."""
+    app_context = _ctx(context)
+    with _errors():
+        project_obj = Project.parse(project)
+        versions = app_context.papermc.versions(project_obj.value)
+    if as_json:
+        console.print_json(data=versions[: max(1, limit)])
+        return
+    table = Table(title=f"{project_obj.display_name} versions", header_style="bold")
+    table.add_column("Version", style="cyan")
+    table.add_column("Java", justify="right")
+    for version in versions[: max(1, limit)]:
+        table.add_row(version, str(required_java_major(project_obj, version)))
+    console.print(table)
+    if len(versions) > limit:
+        console.print(f"[dim]{len(versions) - limit} more; use --limit to show them.[/dim]")
+
+
+@server_app.command("builds")
+def server_builds(
+    context: typer.Context,
+    version: Annotated[str, typer.Argument(help="Minecraft version.")],
+    project: Annotated[
+        str, typer.Option("--project", "-p", help="paper, folia, velocity or waterfall.")
+    ] = "paper",
+    channel: Annotated[
+        str | None, typer.Option("--channel", help="Filter by STABLE, BETA or ALPHA.")
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum builds to show.")] = 20,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """List builds for a project and Minecraft version."""
+    app_context = _ctx(context)
+    with _errors():
+        project_obj = Project.parse(project)
+        builds = app_context.papermc.builds(project_obj.value, version)
+    if channel:
+        builds = [build for build in builds if build.channel == channel.upper()]
+    builds = builds[-max(1, limit) :]
+    builds.reverse()
+    if as_json:
+        console.print_json(
+            data=[
+                {
+                    "build": build.build,
+                    "channel": build.channel,
+                    "time": build.time,
+                    "downloads": {
+                        key: asdict(download) for key, download in build.downloads.items()
+                    },
+                }
+                for build in builds
+            ]
+        )
+        return
+    table = Table(title=f"{project_obj.display_name} {version} builds", header_style="bold")
+    table.add_column("Build", justify="right")
+    table.add_column("Channel")
+    table.add_column("Time")
+    table.add_column("File")
+    table.add_column("Size", justify="right")
+    for build in builds:
+        try:
+            download = build.server_download
+        except SlimeError:
+            continue
+        size = f"{download.size / (1024 * 1024):.1f} MiB" if download.size else "?"
+        table.add_row(
+            str(build.build),
+            build.channel,
+            build.time or "",
+            escape(download.name),
+            size,
+        )
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# Java commands
+# ---------------------------------------------------------------------------
+
+
+@java_app.command("list")
+def java_list(
+    context: typer.Context,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """List Java runtimes installed by Slime and on PATH."""
+    app_context = _ctx(context)
+    with _errors():
+        installed = app_context.java_manager.installed()
+        system = app_context.java_manager.system_java()
+
+    if as_json:
+        console.print_json(
+            data={
+                "installed": [_java_payload(install) for install in installed],
+                "system": _java_payload(system) if system else None,
+            }
+        )
+        return
+    table = Table(title="Java runtimes", header_style="bold")
+    table.add_column("Major", justify="right")
+    table.add_column("Version")
+    table.add_column("Source")
+    table.add_column("Path")
+    for install in installed:
+        table.add_row(
+            str(install.major),
+            escape(install.version or "unknown"),
+            install.source,
+            escape(install.path),
+        )
+    if system:
+        table.add_row(
+            str(system.major),
+            escape(system.version or "unknown"),
+            "system",
+            escape(system.path),
+        )
+    if not installed and not system:
+        console.print("[dim]No Java runtimes found.[/dim]")
+        console.print("Install one with: [cyan]slime java install 21[/cyan]")
+        return
+    console.print(table)
+
+
+@java_app.command("releases")
+def java_releases(
+    context: typer.Context,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """Show Java versions available from Adoptium."""
+    app_context = _ctx(context)
+    with _errors():
+        releases = app_context.java_manager.client.releases()
+        lts = set(app_context.java_manager.client.lts_releases())
+        installed = {install.major for install in app_context.java_manager.installed()}
+
+    if as_json:
+        console.print_json(
+            data=[
+                {"major": major, "lts": major in lts, "installed": major in installed}
+                for major in releases
+            ]
+        )
+        return
+    table = Table(title="Adoptium Temurin releases", header_style="bold")
+    table.add_column("Major", justify="right")
+    table.add_column("LTS")
+    table.add_column("Installed")
+    for major in releases:
+        table.add_row(
+            str(major),
+            "[green]yes[/green]" if major in lts else "",
+            "[green]yes[/green]" if major in installed else "",
+        )
+    console.print(table)
+    console.print("Install with: [cyan]slime java install <major>[/cyan]")
+
+
+@java_app.command("install")
+def java_install(
+    context: typer.Context,
+    major: Annotated[int, typer.Argument(help="Java major version, e.g. 21.")],
+    force: Annotated[
+        bool, typer.Option("--force", help="Reinstall even if the version exists.")
+    ] = False,
+    os_name: Annotated[
+        str | None, typer.Option("--os", help="Override the target OS (windows/linux/mac).")
+    ] = None,
+    arch: Annotated[
+        str | None, typer.Option("--arch", help="Override the target architecture (x64/aarch64).")
+    ] = None,
+) -> None:
+    """Download and install a Temurin JDK from Adoptium."""
+    app_context = _ctx(context)
+    with _errors():
+        existing = app_context.java_manager.get(major)
+        if existing is not None and not force:
+            console.print(
+                f"Java {major} is already installed: {escape(existing.path)}"
+            )
+            return
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(f"Downloading Temurin {major}…", total=None)
+
+            def on_progress(done: int, total: int | None) -> None:
+                progress.update(
+                    task,
+                    description=f"Downloading Temurin {major}…",
+                    completed=done,
+                    total=total,
+                )
+
+            install = app_context.java_manager.install(
+                major,
+                os_name=os_name,
+                arch=arch,
+                force=force,
+                progress=on_progress,
+            )
+
+    console.print(
+        Panel(
+            f"[bold green]Java {install.major} installed[/bold green]\n\n"
+            f"Version: {escape(install.version or 'unknown')}\n"
+            f"Java:    {escape(install.path)}",
+            title="Temurin",
+            border_style="green",
+        )
+    )
+    console.print(f"Servers that require Java {install.major} will use it automatically.")
+
+
+@java_app.command("remove")
+def java_remove(
+    context: typer.Context,
+    major: Annotated[int, typer.Argument(help="Java major version to remove.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")] = False,
+) -> None:
+    """Remove a Java runtime installed by Slime."""
+    app_context = _ctx(context)
+    with _errors():
+        install = app_context.java_manager.get(major)
+        if install is None:
+            raise JavaError(
+                f"Slime does not manage a Java {major} runtime.",
+                hint="Run `slime java list` to see installed runtimes.",
+            )
+        if not yes:
+            if not sys.stdin.isatty():
+                raise ServerError(
+                    "Refusing to remove without confirmation.",
+                    hint="Pass --yes to remove non-interactively.",
+                )
+            if not Confirm.ask(f"Remove Java {major} from {install.path}?", default=False):
+                console.print("Cancelled.")
+                raise typer.Exit()
+        app_context.java_manager.remove(major)
+    console.print(f"[green]Removed[/green] Java {major}.")
+
+
+@java_app.command("which")
+def java_which(
+    context: typer.Context,
+    major: Annotated[
+        int | None, typer.Argument(help="Java major version (default: system Java).")
+    ] = None,
+    server: Annotated[
+        str | None, typer.Option("--server", "-s", help="Show the Java a server will use.")
+    ] = None,
+) -> None:
+    """Print the path to a Java executable (useful in scripts)."""
+    app_context = _ctx(context)
+    install: JavaInstall | None = None
+    with _errors():
+        if server:
+            target = app_context.store.get(server)
+            install = app_context.java_manager.require_for(target)
+        elif major is not None:
+            install = app_context.java_manager.get(major)
+            if install is None:
+                system = app_context.java_manager.system_java()
+                install = system if system and system.major == major else None
+            if install is None:
+                raise JavaError(
+                    f"Java {major} is not installed.",
+                    hint=f"Install it with: slime java install {major}",
+                )
+        else:
+            install = app_context.java_manager.system_java()
+            if install is None:
+                raise JavaError(
+                    "No Java runtime was found on PATH or in JAVA_HOME.",
+                    hint="Install one with: slime java install 21",
+                )
+    assert install is not None
+    console.print(install.path)
+
+
+# ---------------------------------------------------------------------------
+# Config commands
+# ---------------------------------------------------------------------------
+
+
+@config_app.command("show")
+def config_show(
+    context: typer.Context,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """Show settings and important paths."""
+    app_context = _ctx(context)
+    settings = app_context.config.settings
+    paths = app_context.config.paths
+    if as_json:
+        console.print_json(
+            data={
+                "settings": asdict(settings),
+                "paths": {
+                    "home": str(paths.home),
+                    "servers": str(paths.servers),
+                    "java": str(paths.java),
+                    "cache": str(paths.cache),
+                    "logs": str(paths.logs),
+                    "config": str(paths.config_file),
+                },
+            }
+        )
+        return
+
+    table = Table(title="Slime settings", header_style="bold")
+    table.add_column("Setting", style="bold")
+    table.add_column("Value")
+    for field_name in Settings.__dataclass_fields__:
+        table.add_row(field_name, escape(str(getattr(settings, field_name))))
+    console.print(table)
+
+    paths_table = Table(title="Paths", header_style="bold")
+    paths_table.add_column("Location", style="bold")
+    paths_table.add_column("Path")
+    for label, value in (
+        ("Home", paths.home),
+        ("Servers", paths.servers),
+        ("Java", paths.java),
+        ("Cache", paths.cache),
+        ("Logs", paths.logs),
+        ("Config", paths.config_file),
+    ):
+        paths_table.add_row(label, escape(str(value)))
+    console.print(paths_table)
+
+
+@config_app.command("set")
+def config_set(
+    context: typer.Context,
+    key: Annotated[str, typer.Argument(help="Setting name.")],
+    value: Annotated[str, typer.Argument(help="New value.")],
+) -> None:
+    """Change one setting and save config.toml."""
+    app_context = _ctx(context)
+    with _errors():
+        old = getattr(app_context.config.settings, key, None)
+        new = app_context.config.set(key, value)
+    console.print(f"[green]Updated[/green] {key}: {old!r} -> {new!r}")
+
+
+@config_app.command("path")
+def config_path(context: typer.Context) -> None:
+    """Print the Slime home directory (useful in scripts)."""
+    console.print(str(_ctx(context).config.paths.home))
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """Console-script entry point."""
+    try:
+        app()
+    except SlimeError as error:
+        _fail(error)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

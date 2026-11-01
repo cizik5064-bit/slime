@@ -1,0 +1,17 @@
+[
+  {
+    "binary": {
+      "os": "windows",
+      "architecture": "x64",
+      "image_type": "jdk",
+      "package": {
+        "name": "OpenJDK21U-jdk_x64_windows_hotspot_21.0.4_7.zip",
+        "link": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4%2B7/OpenJDK21U-jdk_x64_windows_hotspot_21.0.4_7.zip",
+        "checksum": "0123456789abcdef",
+        "size": 190000000
+      }
+    },
+    "version": {"semver": "21.0.4+7"},
+    "release": {"version": {"semver": "21.0.4+7"}}
+  }
+]

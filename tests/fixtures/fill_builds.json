@@ -1,0 +1,32 @@
+{
+  "project": {"id": "paper", "name": "Paper"},
+  "version": "1.21.4",
+  "builds": [
+    {
+      "id": 42,
+      "time": "2024-12-03T12:00:00Z",
+      "channel": "STABLE",
+      "downloads": {
+        "server:default": {
+          "name": "paper-1.21.4-42.jar",
+          "checksums": {"sha256": "deadbeef"},
+          "size": 12345678,
+          "url": "https://fill-data.example/paper-1.21.4-42.jar"
+        }
+      }
+    },
+    {
+      "id": 43,
+      "time": "2024-12-04T12:00:00Z",
+      "channel": "BETA",
+      "downloads": {
+        "server:default": {
+          "name": "paper-1.21.4-43.jar",
+          "checksums": {"sha256": "cafebabe"},
+          "size": 12345679,
+          "url": "https://fill-data.example/paper-1.21.4-43.jar"
+        }
+      }
+    }
+  ]
+}

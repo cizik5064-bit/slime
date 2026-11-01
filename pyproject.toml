@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slime-mc"
+version = "0.1.0"
+description = "A friendly Minecraft server manager for PaperMC servers, with a TUI and a CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Slime contributors" }]
+keywords = ["minecraft", "server", "papermc", "paper", "velocity", "tui", "cli", "adoptium", "java"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Games/Entertainment",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = [
+  "typer>=0.12.5,<1.0",
+  "rich>=13.7.1,<15",
+  "textual>=0.79,<3",
+  "httpx>=0.27,<1",
+  "psutil>=5.9.8,<8",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "respx>=0.21",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+[project.scripts]
+slime = "slime.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/slime-mc/slime"
+Documentation = "https://github.com/slime-mc/slime#readme"
+Issues = "https://github.com/slime-mc/slime/issues"
+Changelog = "https://github.com/slime-mc/slime/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slime"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/slime",
+  "tests",
+  "docs",
+  "README.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
+  "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["slime"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+ignore_missing_imports = true
+files = ["src/slime"]

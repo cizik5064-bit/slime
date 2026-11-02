@@ -10,7 +10,12 @@ import pytest
 from slime.api.adoptium import JavaPackage
 from slime.config import Config
 from slime.errors import JavaError
-from slime.java import METADATA_FILE, JavaManager, _java_major
+from slime.java import (
+    METADATA_FILE,
+    JavaManager,
+    _java_major,
+    java_executable_name,
+)
 from slime.models import JavaInstall, Server
 
 
@@ -168,7 +173,8 @@ def test_install_downloads_extracts_and_records(
         (staging / "jdk-21" / "bin").mkdir(parents=True)
 
     def fake_find(staging: Path, **kwargs: object) -> Path:
-        executable = staging / "jdk-21" / "bin" / executable_name()
+        os_name = str(kwargs.get("os_name", "windows"))
+        executable = staging / "jdk-21" / "bin" / java_executable_name(os_name)
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text("", encoding="utf-8")
         return executable

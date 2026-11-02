@@ -21,6 +21,7 @@
 не заставляя искать jar, Java, EULA и свободный порт.
 
 Расположение: `C:\Users\dylan\Desktop\Slime`
+GitHub: `https://github.com/cizik5064-bit/slime` (remote `origin`).
 Пакет: `slime-mc`, импорт: `slime`, entry point: `slime`.
 Лицензия: MIT. Язык интерфейса, кода и README — **английский**.
 Язык общения с пользователем — **русский**.

@@ -9,7 +9,7 @@ features, major for incompatible changes.
 1. Create the `slime-mc` project on [PyPI](https://pypi.org/) if it does not
    exist yet.
 2. Configure **Trusted Publishing** on PyPI for the GitHub repository
-   `slime-mc/slime`, workflow `release.yml` and environment `pypi`.
+   `cizik5064-bit/slime`, workflow `release.yml` and environment `pypi`.
 3. In the GitHub repository, create an environment named `pypi`. Optionally add
    required reviewers so a release needs manual approval.
 

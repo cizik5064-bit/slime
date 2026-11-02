@@ -18,7 +18,7 @@ and focused pull requests are very welcome.
 Requirements: Python 3.11+ and git.
 
 ```bash
-git clone https://github.com/slime-mc/slime.git
+git clone https://github.com/cizik5064-bit/slime.git
 cd slime
 python -m venv .venv
 ```

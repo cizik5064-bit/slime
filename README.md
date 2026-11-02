@@ -1,6 +1,6 @@
 # Slime
 
-[![CI](https://github.com/slime-mc/slime/actions/workflows/ci.yml/badge.svg)](https://github.com/slime-mc/slime/actions/workflows/ci.yml)
+[![CI](https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml/badge.svg)](https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/slime-mc.svg)](https://pypi.org/project/slime-mc/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
@@ -105,7 +105,7 @@ slime
 ### From source (development)
 
 ```bash
-git clone https://github.com/slime-mc/slime.git
+git clone https://github.com/cizik5064-bit/slime.git
 cd slime
 python -m venv .venv
 ```

@@ -49,10 +49,10 @@ dev = [
 slime = "slime.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/slime-mc/slime"
-Documentation = "https://github.com/slime-mc/slime#readme"
-Issues = "https://github.com/slime-mc/slime/issues"
-Changelog = "https://github.com/slime-mc/slime/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/cizik5064-bit/slime"
+Documentation = "https://github.com/cizik5064-bit/slime#readme"
+Issues = "https://github.com/cizik5064-bit/slime/issues"
+Changelog = "https://github.com/cizik5064-bit/slime/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/slime"]

@@ -53,7 +53,7 @@ class Settings:
     accept_eula_default: bool = False
     fill_base_url: str = "https://fill.papermc.io/v3"
     adoptium_base_url: str = "https://api.adoptium.net/v3"
-    user_agent: str = f"Slime/{__version__} (+https://github.com/slime-mc/slime)"
+    user_agent: str = f"Slime/{__version__} (+https://github.com/cizik5064-bit/slime)"
     request_timeout: float = 30.0
 
 
@@ -108,7 +108,7 @@ def _dump_settings(settings: Settings) -> str:
         "request_timeout",
     )
     lines = [
-        "# Slime configuration. See https://github.com/slime-mc/slime",
+        "# Slime configuration. See https://github.com/cizik5064-bit/slime",
         "",
         "[general]",
     ]

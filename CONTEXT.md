@@ -4,8 +4,8 @@
 Он не является пользовательской документацией (это `README.md`).
 
 Последнее обновление: 2026-11-02
-Версия проекта: **1.0.0 (подготовлена к первому публичному релизу;
-тег и публикация на PyPI ещё не выполнены)**
+Версия проекта: **1.0.0 (первый публичный релиз опубликован 2026-11-02:
+PyPI + GitHub Release, тег `v1.0.0`)**
 
 ---
 
@@ -154,14 +154,12 @@ src/slime/
    `.gitattributes`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md` и
    GitHub Actions CI (`.github/workflows/ci.yml`: Windows + Linux,
    Python 3.11–3.14, ruff, mypy, pytest, сборка sdist/wheel). `docs/` пока нет.
-6. **Релиз 1.0.0 подготовлен, но не опубликован.** Версия поднята в
-   `pyproject.toml` и `__init__.py`, `CHANGELOG.md` переписан под 1.0.0,
-   README обновлён, добавлены `RELEASING.md` и
-   `.github/workflows/release.yml` (тег `v*` → проверка версии → сборка →
-   PyPI Trusted Publishing → GitHub Release). Локальная сборка
-   `python -m build` проверена: sdist и wheel создаются. Осталось: настроить
-   PyPI Trusted Publisher/environment `pypi`, поставить тег `v1.0.0`,
-   запушить и убедиться, что workflow прошёл. Скриншотов TUI пока нет.
+6. **Релиз 1.0.0 опубликован.** Тег `v1.0.0`, release-workflow завершился
+   успешно: пакет `slime-mc==1.0.0` (wheel + sdist) на PyPI, GitHub Release
+   создан. Установка из PyPI в чистый venv проверена: `Slime 1.0.0`.
+   PyPI Owner: `dontart`; GitHub: `cizik5064-bit/slime`. Скриншотов TUI пока
+   нет. Классификатор `Development Status` в `pyproject.toml` пока остаётся
+   `4 - Beta` — поменять на `5 - Production/Stable` в следующем patch-релизе.
 7. **Нет** кросс-процессного `stop`: сервер живёт, пока жив процесс Slime
    (TUI или foreground CLI). Это осознанное решение для v1: на Windows нельзя
    надёжно писать в stdin чужого процесса без RCON. В TUI stop работает, в CLI —
@@ -348,10 +346,10 @@ python -m compileall -q src
    `CHANGELOG.md`, `CONTRIBUTING.md`, CI (GitHub Actions: Windows + Linux,
    Python 3.11–3.14).~~ — **сделано**.
 7. ~~Инициализировать git, сделать первый коммит.~~ — **сделано**.
-8. ~~Подготовить релиз `1.0.0`.~~ — **сделано**: версия 1.0.0, CHANGELOG,
-   README, `RELEASING.md`, release-workflow, тест на согласованность версии.
-   Осталось выполнить только публикацию: настроить PyPI Trusted Publisher и
-   environment `pypi`, затем `git tag v1.0.0` + push (см. `RELEASING.md`).
+8. ~~Подготовить и опубликовать релиз `1.0.0`.~~ — **сделано** 2026-11-02:
+   PyPI (`slime-mc==1.0.0`), GitHub Release `v1.0.0`, Trusted Publishing и
+   environment `pypi` настроены. Дальше — обычные patch/minor релизы по
+   `RELEASING.md`.
 
 ---
 

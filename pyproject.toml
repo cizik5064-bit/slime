@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slime-mc"
-version = "1.0.1"
+version = "1.1.0"
 description = "A friendly Minecraft server manager for PaperMC servers, with a TUI and a CLI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,6 +44,11 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.11",
 ]
+build = [
+  "build>=1.2",
+  "nuitka>=4.3,<5",
+  "zstandard>=0.22",
+]
 
 [project.scripts]
 slime = "slime.cli:main"
@@ -60,6 +65,7 @@ packages = ["src/slime"]
 [tool.hatch.build.targets.sdist]
 include = [
   "src/slime",
+  "scripts",
   "tests",
   "docs",
   "README.md",

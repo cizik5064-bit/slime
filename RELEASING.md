@@ -52,19 +52,28 @@ features, major for incompatible changes.
    On Windows use `.venv\Scripts\...` and a temporary path such as
    `$env:TEMP\slime-release`.
 
-8. Commit the version bump with a message such as `chore: release 1.0.0`.
+8. Build the standalone Windows executable and smoke-test it:
+
+   ```powershell
+   python -m pip install -e ".[build]"
+   python scripts/build_exe.py
+   .\dist\slime.exe --version
+   ```
+
+9. Commit the version bump with a message such as `chore: release 1.0.0`.
 
 ## Tag and publish
 
 The `Release` workflow (`.github/workflows/release.yml`) runs on any `v*` tag.
-It checks that the tag matches `pyproject.toml`, builds sdist and wheel,
-publishes to PyPI through Trusted Publishing and creates a GitHub release with
-generated notes.
+It checks that the tag matches `pyproject.toml`, builds sdist and wheel, builds
+and smoke-tests the Windows standalone executable, publishes to PyPI through
+Trusted Publishing and creates a GitHub release with generated notes, the
+Python distributions and the executable.
 
 ```bash
-git tag -a v1.0.0 -m "Slime 1.0.0"
+git tag -a v1.1.0 -m "Slime 1.1.0"
 git push origin main
-git push origin v1.0.0
+git push origin v1.1.0
 ```
 
 Do not tag if the version check would fail: the tag must be exactly
@@ -77,7 +86,7 @@ Do not tag if the version check would fail: the tag must be exactly
 2. Verify the public install:
 
    ```bash
-   pipx install --force slime-mc==1.0.0
+   pipx install --force slime-mc==1.1.0
    slime --version
    pipx uninstall slime-mc
    ```
@@ -95,5 +104,5 @@ artifacts manually:
 python -m twine upload dist/*
 ```
 
-Then create the GitHub release from the `v1.0.0` tag and attach the files from
-`dist/`.
+Then create the GitHub release from the `v1.1.0` tag and attach the files from
+`dist/` (Python distributions and, on Windows, the executable and its checksum).

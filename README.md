@@ -11,7 +11,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.0.1 — first public release.** Core features are implemented and
+> **Status: 1.1.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -102,6 +102,23 @@ slime --version
 slime
 ```
 
+### Standalone executable (Windows)
+
+Every tagged release includes a self-contained
+`slime-<version>-windows-x64.exe` and a matching `.sha256` checksum on the
+[GitHub Releases](https://github.com/cizik5064-bit/slime/releases) page. It
+bundles Python and all dependencies, so no separate Python installation is
+needed.
+
+```powershell
+Get-FileHash .\slime-1.1.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.1.0-windows-x64.exe --version
+.\slime-1.1.0-windows-x64.exe
+```
+
+Compare the hash with the published `.sha256` file before running the binary.
+The executable uses the same `~/.slime` home directory as the Python install.
+
 ### From source (development)
 
 ```bash
@@ -125,6 +142,15 @@ pip install -e ".[dev]"
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
+
+To build the standalone executable locally:
+
+```bash
+python -m pip install -e ".[build]"
+python scripts/build_exe.py
+```
+
+The binary and its checksum are written to `dist/`.
 
 ## Quick start (CLI)
 
@@ -367,7 +393,7 @@ services.
 - [ ] Plugin/mod browser (Modrinth / Hangar)
 - [ ] RCON console and cross-process server control
 - [ ] Legacy Windows 7/8.1 build
-- [ ] Standalone binaries via PyInstaller
+- [x] Standalone Windows executable via Nuitka
 
 ## Disclaimer
 

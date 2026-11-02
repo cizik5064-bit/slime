@@ -102,13 +102,19 @@ slime --version
 slime
 ```
 
-### Standalone executable (Windows)
+### Standalone executables (Windows and Linux)
 
-Every tagged release includes a self-contained
-`slime-<version>-windows-x64.exe` and a matching `.sha256` checksum on the
-[GitHub Releases](https://github.com/cizik5064-bit/slime/releases) page. It
-bundles Python and all dependencies, so no separate Python installation is
+Every tagged release includes a self-contained executable and a matching
+`.sha256` checksum on the
+[GitHub Releases](https://github.com/cizik5064-bit/slime/releases) page:
+
+- `slime-<version>-windows-x64.exe`
+- `slime-<version>-linux-x64`
+
+They bundle Python and all dependencies, so no separate Python installation is
 needed.
+
+Windows:
 
 ```powershell
 Get-FileHash .\slime-1.1.0-windows-x64.exe -Algorithm SHA256
@@ -116,8 +122,17 @@ Get-FileHash .\slime-1.1.0-windows-x64.exe -Algorithm SHA256
 .\slime-1.1.0-windows-x64.exe
 ```
 
+Linux:
+
+```bash
+sha256sum -c slime-1.1.0-linux-x64.sha256
+chmod +x slime-1.1.0-linux-x64
+./slime-1.1.0-linux-x64 --version
+./slime-1.1.0-linux-x64
+```
+
 Compare the hash with the published `.sha256` file before running the binary.
-The executable uses the same `~/.slime` home directory as the Python install.
+Both executables use the same `~/.slime` home directory as the Python install.
 
 ### From source (development)
 

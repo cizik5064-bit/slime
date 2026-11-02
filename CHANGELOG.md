@@ -11,16 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Standalone Windows executable built with Nuitka. Tagged releases now attach
-  `slime-<version>-windows-x64.exe` plus a SHA-256 checksum to the GitHub
-  release.
+- Standalone executables built with Nuitka. Tagged releases now attach
+  `slime-<version>-windows-x64.exe` and `slime-<version>-linux-x64` plus
+  SHA-256 checksums to the GitHub release.
 - `python scripts/build_exe.py` builds the same executable locally; the
   `[build]` extra installs Nuitka and its compression dependency.
 
 ### Changed
 
-- The release workflow builds and smoke-tests the Windows executable before
-  creating the GitHub release.
+- The release workflow builds and smoke-tests Windows and Linux executables
+  before creating the GitHub release, and can be re-run for a tag whose PyPI
+  files already exist.
 
 ## [1.0.1] - 2026-11-02
 

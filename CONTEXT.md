@@ -350,6 +350,8 @@ python -m compileall -q src
    PyPI (`slime-mc==1.0.0`), GitHub Release `v1.0.0`, Trusted Publishing и
    environment `pypi` настроены. Дальше — обычные patch/minor релизы по
    `RELEASING.md`.
+9. Исправить баги из раздела 9 (`B01`–`B16`) и выпустить `1.0.1` по
+   `RELEASING.md`. Каждый фикс — с regression-тестом.
 
 ---
 
@@ -360,3 +362,180 @@ python -m compileall -q src
 - Minecraft EULA: https://aka.ms/MinecraftEULA
 - Textual: https://textual.textualize.io/
 - Typer: https://typer.tiangolo.com/
+
+---
+
+## 9. Аудит кода 2026-11-02: найденные баги (не исправлены)
+
+Аудит прочитанных модулей `models`, `config`, `properties`, `store`,
+`checks`, `java`, `provision`, `process`, `cli`, API-клиентов, `utils` и TUI.
+Статусы: **подтверждено** — воспроизведено локально скриптом/тестом;
+**по коду** — следует из логики, runtime-тест ещё не написан.
+
+| ID | Приоритет | Файл | Проблема | Статус |
+| --- | --- | --- | --- | --- |
+| B01 | critical | `java.py` | `remove()` может удалить весь `~/.slime/java` | по коду |
+| B02 | high | `models.py`, `store.py` | битый `slime.json` даёт `ValueError` вместо `SlimeError` | подтверждено |
+| B03 | high | `process.py`, `cli.py` | потеря/гонка exit code при завершении сервера | по коду |
+| B04 | high | `process.py` | прокси останавливаются командой `stop` вместо `shutdown`/`end` | по коду |
+| B05 | high | `cli.py` | `server eula` принимает EULA по умолчанию без явного флага | подтверждено по коду |
+| B06 | medium | `config.py` | значения из `config.toml` не проходят диапазонную валидацию | подтверждено |
+| B07 | medium | `store.py` | `create_directory()` падает `NotADirectoryError`, если путь — файл | подтверждено |
+| B08 | medium | `tui/screens/server.py`, `java.py` | `OSError` при удалении не ловится, worker падает | по коду |
+| B09 | medium | `process.py` | `JAVA_HOME` вычисляется как `java_path.parent.parent` | по коду |
+| B10 | medium | `java.py`, `archives.py` | `--os/--arch` не влияют на поиск `java`/`java.exe`; tar-симлинки на Windows | по коду |
+| B11 | medium | `store.py` | `is_running()` считает running любой Java-процесс с тем же PID | по коду |
+| B12 | low | `checks.py`, `cli.py` | устаревший текст «Slime 0.1», `server-port` может отображаться как `None` | по коду |
+| B13 | low | `models.py` | `from_dict()`: `extra_args`-строка превращается в список символов, `created_at` теряется | подтверждено |
+| B14 | low | `provision.py` | при ошибке удаляется ранее существовавшая пустая папка сервера | по коду |
+| B15 | low | `tui/screens/create.py` | подсказка Java 21 для `latest`, хотя календарные версии требуют 25 | по коду |
+| B16 | low | `tui/screens/server.py` | строки, пришедшие между `start()` и подпиской, не показываются | по коду |
+
+### B01. `JavaManager.remove()` может удалить корень Java
+
+`java.py:191-199`: проверка `home.resolve().relative_to(java_root)` пропускает
+случай `home == java_root` (`relative_to` возвращает `.`). Если в
+`slime-java.json` подставить `"home": "<SLIME_HOME>/java"`, `remove()` вызовет
+`shutil.rmtree` на каталоге со всеми JDK. Нужно запретить `home == java_root`
+и требовать, чтобы `home` был прямым дочерним каталогом `paths.java`.
+
+### B02. Битый `slime.json` даёт traceback
+
+`Server.from_dict()` приводит `build`/`java_major`/`memory_mb`/`port` через
+`int()`, а `schema` — тоже. `ValueError`/`TypeError` не оборачиваются в
+`ValidationError`; `ServerStore.get()` пробрасывает их наружу, а CLI ловит
+только `SlimeError`. Проверено: `build: "abc"` → `ValueError: invalid literal
+for int()`. `store.list()` такие записи молча пропускает — сервер исчезает из
+списка без объяснения. Нужно обернуть все преобразования в `ValidationError`
+и добавить тест на `server info` с битым JSON.
+
+### B03. Гонка exit code при завершении сервера
+
+`ServerProcess.wait()` ждёт `self._process.wait()`, но не обновляет
+`self._exit_code`; это делает `_pump()` в `finally`. В
+`_run_foreground()` после `asyncio.wait(...)` код читает
+`process.exit_code or 0`, поэтому при краше можно вернуть `0` (успех).
+Кроме того, `or 0` маскирует любой falsy-код. Нужно, чтобы `wait()` сам
+записывал код, и возвращать `code if code is not None else 0`.
+
+### B04. Прокси не останавливаются командой `stop`
+
+`ServerProcess.stop()` всегда пишет `stop`. Velocity понимает `shutdown`,
+Waterfall/BungeeCord — `end`; после `stop` они не завершаются, Slime ждёт
+30 секунд и делает `terminate()`. Нужно выбирать команду по
+`server.project`.
+
+### B05. `server eula` принимает EULA по умолчанию
+
+`cli.py:782-785`: `--accept/--revoke` имеет `default=True`, поэтому
+`slime server eula NAME` без флага записывает `eula=true`. Это нарушает
+правило «только явное согласие». Нужно сделать значение `None`: интерактивно
+спрашивать, неинтерактивно требовать `--accept` или `--revoke`.
+
+### B06. `config.toml` обходит валидацию
+
+`Config._load()` использует `_coerce()` (только тип), но не
+`validate_memory`/`validate_port`/`validate_java_major`. Проверено:
+`default_port = 0`, `default_memory_mb = 1` загружаются без ошибки и позже
+ломают создание сервера. Нужно валидировать при загрузке и поднимать
+`ConfigError` с понятным hint.
+
+### B07. Путь сервера занят файлом
+
+`ServerStore.create_directory()` делает `any(directory.iterdir())` без
+проверки `is_dir()`. Проверено: если `servers/foo` — файл, получаем
+`NotADirectoryError`, который не является `SlimeError` и даёт traceback.
+Нужно проверять `directory.is_dir()` и поднимать `ServerError`.
+
+### B08. TUI не ловит `OSError` при удалении
+
+`ServerScreen._delete_server()` и `JavaScreen._remove_confirmed()` ловят
+только `SlimeError`, а `shutil.rmtree()` может бросить `OSError`
+(занятый файл, права). Worker Textual завершится ошибкой. Нужно добавить
+`OSError` и показывать `notify_error`.
+
+### B09. Неверный `JAVA_HOME`
+
+`process.py:175`: `environment["JAVA_HOME"] = str(self.java_path.parent.parent)`.
+Для managed Temurin это верно, но для `/usr/bin/java` (симлинк) получится
+`/usr`, для обёрток и нестандартных путей — тоже неверно. Нужно передавать
+`JavaInstall.home` в `ServerProcess` или вычислять по `inspect()`.
+
+### B10. Кросс-платформенная установка Java
+
+`JavaManager.install(os_name=..., arch=...)` скачивает пакет для указанной
+ОС, но имя исполняемого файла и `find_java_executable()` выбираются по
+текущей ОС (`os.name`). На Windows установка `--os linux` ищет `java.exe`
+и падает. Дополнительно `_extract_tar()` создаёт симлинки через `os.symlink`,
+что на Windows часто требует прав администратора. Нужно выбирать
+`java.exe`/`java` по целевой ОС и предусмотреть fallback для симлинков.
+
+### B11. Ложный «running» по PID
+
+`ServerStore.is_running()` считает сервер запущенным, если процесс с таким
+PID существует и в его имени есть `java`. Любой другой Java-процесс
+(другой сервер, IDE, игра) с переиспользованным PID даст ложное срабатывание
+и заблокирует старт/удаление. Надёжнее сверять командную строку с
+`server.jar`/каталогом сервера и время старта.
+
+### B12. Устаревшие и неинформативные сообщения
+
+- `checks.py:85`: hint «Slime 0.1 requires Windows 10 or newer».
+- `checks.py:324-339`: если в `server.properties` нет `server-port`,
+  сообщение будет `server.properties says None`.
+- `check_java()` содержит недостижимую ветку `install.major != ...`:
+  `find_for()` уже фильтрует по major.
+
+### B13. Нормализация `Server.from_dict()`
+
+Проверено:
+- `extra_args: "--foo"` → `["-", "-", "f", "o", "o"]`;
+- отсутствующий `created_at` → пустая строка, а не текущее время;
+- `java_path` не приводится к `str | None`;
+- `schema` с нечисловым значением даёт `ValueError`.
+
+Исправить: принимать `extra_args` только списком, `created_at` по умолчанию
+заполнять `datetime.now(UTC)`, `java_path` нормализовать, ошибки оборачивать
+в `ValidationError`.
+
+### B14. Удаление существовавшей пустой папки
+
+`Provisioner.create()` разрешает создать сервер в уже существующем пустом
+каталоге, но при любой ошибке делает `shutil.rmtree(directory)`. Если папка
+была создана пользователем до Slime, она исчезнет. Нужно удалять только то,
+что создал сам provisioning (например, `created_directory` flag).
+
+### B15. Подсказка Java для `latest`
+
+`CreateServerScreen._required_java()` для пустой версии возвращает 21.
+Для календарных версий 26.x+ нужен Java 25; фактическое значение при
+создании вычисляется правильно, но подсказка вводит в заблуждение.
+Можно резолвить latest-версию перед подсказкой или писать «зависит от версии».
+
+### B16. Пропущенные строки консоли в TUI
+
+`ServerScreen.start_server()` подписывается на `process` после
+`await process.start()`. Строки, которые процесс успел вывести до подписки,
+не попадают в `RichLog` (они есть в `process.lines`). Нужно после подписки
+проиграть буфер, как это делается в `on_mount()`.
+
+### Не баги, но улучшить при случае
+
+- `Config._load()` читает только секции-словари; ключи верхнего уровня
+  игнорируются (формат Slime всегда пишет секции).
+- `download_file()` не оборачивает `os.replace()` в `DownloadError`;
+  возможен оставшийся `.part` при редкой ошибке ФС.
+- `AppContext` в CLI не закрывает `httpx`-клиенты (процесс короткоживущий).
+- `pyproject.toml`: классификатор `Development Status :: 4 - Beta` стоит
+  поменять на `5 - Production/Stable` в `1.0.1`.
+- `properties.parse_properties()` теряет значимые ведущие/хвостовые пробелы
+  в значениях; для Minecraft это почти не встречается.
+
+### Как проверять исправления
+
+Для каждого пункта добавить regression-тест:
+`B01` — metadata с `home == paths.java`; `B02/B13` — битые поля JSON;
+`B03` — процесс с ненулевым кодом; `B04` — команда stop для каждого проекта;
+`B05` — неинтерактивный `server eula` без флага; `B06` — `default_port=0`;
+`B07` — файл вместо каталога; `B11` — чужой Java-процесс. После фиксов:
+`ruff check .`, `mypy`, `pytest`, затем `1.0.1` по `RELEASING.md`.

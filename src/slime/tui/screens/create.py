@@ -141,6 +141,12 @@ class CreateServerScreen(ModalScreen):
         return 21
 
     def _update_java_hint(self) -> None:
+        version = self.query_one("#version", Input).value.strip()
+        if not self._project.is_proxy and not version:
+            self.query_one("#java-hint", Static).update(
+                "Java depends on the version: 21 for 1.20.5-1.21.x, 25 for 26.x+."
+            )
+            return
         major = self._required_java()
         self.query_one("#java-hint", Static).update(
             f"Recommended for this project/version: Java {major}."

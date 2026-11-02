@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .errors import ConfigError
+from .errors import ConfigError, ValidationError
+from .models import validate_java_major, validate_memory, validate_port
 
 APP_DIR_NAME = ".slime"
 CONFIG_FILE_NAME = "config.toml"
@@ -179,7 +180,17 @@ class Config:
         for key, value in flat.items():
             if key in known:
                 values[key] = _coerce(key, value)
-        return Settings(**values)
+        settings = Settings(**values)
+        try:
+            validate_memory(settings.default_memory_mb)
+            validate_port(settings.default_port)
+            validate_java_major(settings.default_java_major)
+        except ValidationError as exc:
+            raise ConfigError(
+                f"Invalid setting in {path}: {exc.message}",
+                hint="Fix the value or delete the file; Slime will recreate it with defaults.",
+            ) from exc
+        return settings
 
     # ------------------------------------------------------------------ save
     def save(self) -> None:

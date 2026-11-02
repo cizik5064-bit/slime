@@ -9,7 +9,26 @@ from pathlib import Path
 import pytest
 
 from slime.errors import ArchiveError
-from slime.utils.archives import extract_archive, find_java_executable
+from slime.utils.archives import (
+    extract_archive,
+    find_java_executable,
+    java_executable_name,
+)
+
+
+def test_java_executable_name_follows_target_os() -> None:
+    assert java_executable_name("windows") == "java.exe"
+    assert java_executable_name("linux") == "java"
+    assert java_executable_name("mac") == "java"
+
+
+def test_find_java_executable_uses_target_os(tmp_path: Path) -> None:
+    executable = tmp_path / "jdk" / "bin" / "java.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("", encoding="utf-8")
+
+    assert find_java_executable(tmp_path, os_name="windows") == executable
+    assert find_java_executable(tmp_path, os_name="linux") is None
 
 
 def make_zip(path: Path, members: dict[str, bytes]) -> Path:

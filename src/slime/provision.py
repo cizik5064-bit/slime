@@ -105,10 +105,11 @@ class Provisioner:
         )
 
         directory = self.store.path(name)
-        created = False
+        preexisting = directory.exists()
+        created_directory = False
         try:
             directory = self.store.create_directory(name)
-            created = True
+            created_directory = not preexisting
 
             if progress:
                 progress("Downloading server jar", 0, download.size)
@@ -149,7 +150,7 @@ class Provisioner:
                 progress("Server created", 1, 1)
             return server
         except Exception:
-            if created:
+            if created_directory:
                 shutil.rmtree(directory, ignore_errors=True)
             raise
 

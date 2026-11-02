@@ -78,6 +78,24 @@ def test_corrupt_toml_reports_error(tmp_path: Path) -> None:
         Config(home)
 
 
+@pytest.mark.parametrize(
+    ("body", "match"),
+    [
+        ("[general]\ndefault_port = 0\n", "Port must be between"),
+        ("[general]\ndefault_memory_mb = 1\n", "Memory must be between"),
+        ("[general]\ndefault_java_major = 19\n", "Unsupported Java major"),
+    ],
+)
+def test_config_file_values_are_validated(
+    tmp_path: Path, body: str, match: str
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "config.toml").write_text(body, encoding="utf-8")
+    with pytest.raises(ConfigError, match=match):
+        Config(home)
+
+
 def test_unknown_keys_are_ignored(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()

@@ -103,6 +103,20 @@ def test_command_override() -> None:
     assert process.build_command() == ["echo", "hello"]
 
 
+@pytest.mark.parametrize(
+    ("project", "expected"),
+    [("paper", "stop"), ("folia", "stop"), ("velocity", "shutdown"), ("waterfall", "end")],
+)
+def test_stop_command_depends_on_project(project: str, expected: str) -> None:
+    process = ServerProcess(
+        make_server(project=project),
+        Path("server"),
+        Path("java"),
+        log_dir=Path("logs"),
+    )
+    assert process._stop_command() == expected
+
+
 async def test_start_missing_java(tmp_path: Path) -> None:
     process = make_process(tmp_path)
     with pytest.raises(ServerError, match="Java executable not found"):
@@ -162,6 +176,7 @@ async def test_crash_sets_crashed_state(tmp_path: Path) -> None:
     script = "import sys\nprint('boom', flush=True)\nsys.exit(3)\n"
     process = make_process(tmp_path, script=script)
     await process.start()
+    assert await process.wait() == 3
     await wait_for_state(process, ServerState.CRASHED)
     assert process.exit_code == 3
 

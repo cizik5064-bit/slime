@@ -164,6 +164,39 @@ class TestServer:
         with pytest.raises(ValidationError):
             self.make(jar_file="../server.jar")
 
+    def test_from_dict_wraps_invalid_integer(self) -> None:
+        with pytest.raises(ValidationError, match="build"):
+            Server.from_dict(
+                {
+                    "name": "survival",
+                    "minecraft_version": "1.21.4",
+                    "build": "abc",
+                }
+            )
+
+    def test_from_dict_rejects_extra_args_string(self) -> None:
+        with pytest.raises(ValidationError, match="extra_args"):
+            Server.from_dict(
+                {
+                    "name": "survival",
+                    "minecraft_version": "1.21.4",
+                    "extra_args": "--foo",
+                }
+            )
+
+    def test_from_dict_normalizes_optional_fields(self) -> None:
+        server = Server.from_dict(
+            {
+                "name": "survival",
+                "minecraft_version": "1.21.4",
+                "extra_args": ["-Dfoo=bar"],
+                "java_path": "",
+            }
+        )
+        assert server.extra_args == ["-Dfoo=bar"]
+        assert server.java_path is None
+        assert server.created_at
+
     def test_empty_version_rejected(self) -> None:
         with pytest.raises(ValidationError):
             self.make(minecraft_version="  ")

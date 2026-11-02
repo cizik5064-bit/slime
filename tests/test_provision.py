@@ -171,6 +171,23 @@ def test_failed_download_cleans_directory(
     assert not store.path("survival").exists()
 
 
+def test_failed_download_keeps_preexisting_empty_directory(
+    setup: tuple[Provisioner, ServerStore, FakePaperMC],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provisioner, store, _ = setup
+    directory = store.path("survival")
+    directory.mkdir(parents=True)
+
+    def broken_download(*_: object, **__: object) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("slime.provision.download_file", broken_download)
+    with pytest.raises(OSError):
+        provisioner.create(CreateRequest(name="survival", project="paper"))
+    assert directory.is_dir()
+
+
 def test_progress_reports_stages(
     setup: tuple[Provisioner, ServerStore, FakePaperMC],
 ) -> None:

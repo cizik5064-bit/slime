@@ -93,6 +93,15 @@ def test_create_directory_allows_empty_existing(store: ServerStore) -> None:
     assert store.create_directory("survival") == path
 
 
+def test_create_directory_rejects_file(store: ServerStore) -> None:
+    path = store.path("survival")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(ServerError, match="not a directory"):
+        store.create_directory("survival")
+
+
 def test_metadata_path_validates_name(store: ServerStore) -> None:
     with pytest.raises(ValidationError):
         store.path("../escape")
@@ -123,8 +132,17 @@ def test_is_running_rejects_pid_reuse(
         def is_running(self) -> bool:
             return True
 
+        def status(self) -> str:
+            return "running"
+
         def name(self) -> str:
             return "python.exe"
+
+        def cmdline(self) -> list[str]:
+            return ["python.exe", "script.py"]
+
+        def cwd(self) -> str:
+            return str(store.root)
 
     monkeypatch.setattr("slime.store.psutil.Process", FakeProcess)
     assert store.is_running("survival") == (False, 4242)
@@ -142,11 +160,48 @@ def test_is_running_accepts_java(
         def is_running(self) -> bool:
             return True
 
+        def status(self) -> str:
+            return "running"
+
         def name(self) -> str:
             return "java.exe"
 
+        def cmdline(self) -> list[str]:
+            return ["java.exe", "-jar", "server.jar"]
+
+        def cwd(self) -> str:
+            return str(store.path("survival"))
+
     monkeypatch.setattr("slime.store.psutil.Process", FakeProcess)
     assert store.is_running("survival") == (True, 4242)
+
+
+def test_is_running_rejects_foreign_java(
+    store: ServerStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store.write_pid("survival", 4242)
+
+    class FakeProcess:
+        def __init__(self, pid: int) -> None:
+            self.pid = pid
+
+        def is_running(self) -> bool:
+            return True
+
+        def status(self) -> str:
+            return "running"
+
+        def name(self) -> str:
+            return "java.exe"
+
+        def cmdline(self) -> list[str]:
+            return ["java.exe", "-jar", "C:/other-server/server.jar"]
+
+        def cwd(self) -> str:
+            return "C:/other-server"
+
+    monkeypatch.setattr("slime.store.psutil.Process", FakeProcess)
+    assert store.is_running("survival") == (False, 4242)
 
 
 def test_utc_now_is_isoformat(store: ServerStore) -> None:

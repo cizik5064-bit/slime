@@ -11,7 +11,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.0.0 — first public release.** Core features are implemented and
+> **Status: 1.0.1 — first public release.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slime-mc"
-version = "1.0.0"
+version = "1.0.1"
 description = "A friendly Minecraft server manager for PaperMC servers, with a TUI and a CLI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Slime contributors" }]
 keywords = ["minecraft", "server", "papermc", "paper", "velocity", "tui", "cli", "adoptium", "java"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Environment :: Win32 (MS Windows)",
   "Intended Audience :: End Users/Desktop",

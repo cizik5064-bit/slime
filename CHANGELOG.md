@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-02
+
+Patch release with fixes found in the first post-release audit.
+
+### Fixed
+
+- `slime java remove` no longer deletes the whole Java root when a runtime's
+  metadata points at `~/.slime/java` itself.
+- Broken `slime.json` records now raise a clear `SlimeError` instead of a
+  traceback; invalid `extra_args`, `java_path`, `created_at` and numeric fields
+  are normalized or reported as validation errors.
+- Server exit codes are recorded reliably, so a crashed foreground server no
+  longer exits Slime with status `0`.
+- Velocity and Waterfall are stopped with `shutdown` and `end` respectively;
+  Paper/Folia keep using `stop`.
+- `slime server eula` no longer accepts the EULA by default. It asks
+  interactively or requires `--accept` / `--revoke`.
+- Values loaded from `config.toml` are range-validated (`default_port`,
+  `default_memory_mb`, `default_java_major`).
+- `server create` reports a conflict when the target path is a file instead of
+  a directory.
+- TUI delete/remove actions handle `OSError` and show a notification instead of
+  crashing the worker.
+- `JAVA_HOME` is set from the resolved Java installation home, not guessed from
+  the executable path.
+- Java installs for a non-host target OS look for `java.exe`/`java` correctly;
+  archive extraction has a copy fallback when symlinks cannot be created.
+- `ServerStore.is_running()` verifies the process working directory or command
+  line, avoiding false positives from unrelated Java processes.
+- Diagnostics no longer mention "Slime 0.1" and report a missing `server-port`
+  clearly.
+- Provisioning only removes directories it created itself when creation fails.
+- The TUI create wizard no longer claims Java 21 for unknown ("latest")
+  versions of calendar releases.
+- The TUI server screen replays console lines emitted before it subscribed.
+
+### Changed
+
+- Development status classifier updated to `5 - Production/Stable`.
+
 ## [1.0.0] - 2026-11-02
 
 First public release. This consolidates the 0.1.0 development series, which was

@@ -82,7 +82,7 @@ def check_os() -> CheckResult:
             "Operating system",
             CheckStatus.FAIL,
             f"Windows {release} is not supported by this build.",
-            hint="Slime 0.1 requires Windows 10 or newer. Windows 7/8.1 needs a legacy build.",
+            hint="Slime requires Windows 10 or newer. Windows 7/8.1 needs a legacy build.",
         )
     if system in {"Linux", "Darwin"}:
         return _result("os", "Operating system", CheckStatus.OK, f"{system} {platform.release()}")
@@ -322,6 +322,16 @@ def check_properties_port(server: Server, store: ServerStore) -> CheckResult:
             scope="server",
         )
     configured = read_properties(path).get("server-port")
+    if configured is None:
+        return _result(
+            "properties",
+            "Configuration",
+            CheckStatus.WARN,
+            f"server.properties does not set server-port; slime.json says port {server.port}.",
+            hint="Add server-port to server.properties, or align slime.json with the "
+            "game's default of 25565.",
+            scope="server",
+        )
     if configured == str(server.port):
         return _result(
             "properties",

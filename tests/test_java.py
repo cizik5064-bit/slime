@@ -167,7 +167,7 @@ def test_install_downloads_extracts_and_records(
     def fake_extract(archive: Path, staging: Path) -> None:
         (staging / "jdk-21" / "bin").mkdir(parents=True)
 
-    def fake_find(staging: Path) -> Path:
+    def fake_find(staging: Path, **kwargs: object) -> Path:
         executable = staging / "jdk-21" / "bin" / executable_name()
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text("", encoding="utf-8")
@@ -234,6 +234,26 @@ def test_remove_refuses_outside_java_root(tmp_path: Path) -> None:
     with pytest.raises(JavaError, match="outside Slime"):
         manager.remove(21)
     assert outside.is_dir()
+
+
+def test_remove_refuses_java_root(tmp_path: Path) -> None:
+    config = Config(tmp_path / "home")
+    executable = config.paths.java / "bin" / executable_name()
+    executable.parent.mkdir(parents=True)
+    executable.write_text("", encoding="utf-8")
+    install = JavaInstall(
+        major=21, version="21", path=str(executable), home=str(config.paths.java)
+    )
+    managed_dir = config.paths.java / "temurin-21-windows-x64"
+    managed_dir.mkdir()
+    (managed_dir / METADATA_FILE).write_text(
+        json.dumps(install.to_dict()), encoding="utf-8"
+    )
+
+    manager = JavaManager(config, FakeAdoptium())  # type: ignore[arg-type]
+    with pytest.raises(JavaError, match="not a managed Java runtime"):
+        manager.remove(21)
+    assert config.paths.java.is_dir()
 
 
 def test_system_java_and_find_for(

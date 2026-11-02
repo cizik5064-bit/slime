@@ -207,7 +207,7 @@ class JavaScreen(Screen):
             return
         try:
             self.slime.java_manager.remove(install.major)
-        except SlimeError as error:
+        except (SlimeError, OSError) as error:
             self.slime.notify_error(error)
             return
         self.slime.notify(f"Java {install.major} removed.", timeout=4)

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .errors import ServerError
-from .models import Server
+from .models import Project, Server
 
 _READY_RE = re.compile(r"(Done \(|Listening on /|Done in |Done \()", re.IGNORECASE)
 _LINE_LIMIT = 3000
@@ -52,6 +52,7 @@ class ServerProcess:
         log_dir: Path,
         extra_args: list[str] | None = None,
         command_override: list[str] | None = None,
+        java_home: str | Path | None = None,
     ) -> None:
         self.server = server
         self.server_dir = Path(server_dir)
@@ -59,6 +60,7 @@ class ServerProcess:
         self.log_dir = Path(log_dir)
         self.extra_args = list(extra_args if extra_args is not None else server.extra_args)
         self.command_override = command_override
+        self.java_home = Path(java_home) if java_home is not None else None
 
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -172,7 +174,8 @@ class ServerProcess:
 
         environment = os.environ.copy()
         if self.command_override is None:
-            environment["JAVA_HOME"] = str(self.java_path.parent.parent)
+            java_home = self.java_home or self.java_path.parent.parent
+            environment["JAVA_HOME"] = str(java_home)
 
         self._set_state(ServerState.STARTING)
         self._exit_code = None
@@ -211,7 +214,6 @@ class ServerProcess:
         process = self._process
         if process is None or process.stdout is None:
             return
-        code = 0
         cancelled = False
         try:
             while True:
@@ -233,22 +235,28 @@ class ServerProcess:
                         line_listener(line)
                     except Exception:  # pragma: no cover - listener bugs
                         continue
-            code = await process.wait()
+            await process.wait()
         except asyncio.CancelledError:
             cancelled = True
             raise
         finally:
-            self._exit_code = code
+            if not cancelled:
+                final_code = (
+                    self._exit_code if self._exit_code is not None else process.returncode
+                )
+                if final_code is None:
+                    final_code = 0
+                self._exit_code = final_code
             self._clear_pid()
             self._close_log()
             if not cancelled:
-                if self._state is ServerState.STOPPING or code == 0:
+                if self._state is ServerState.STOPPING or self._exit_code == 0:
                     self._set_state(ServerState.STOPPED)
                 else:
                     self._set_state(ServerState.CRASHED)
                 for exit_listener in list(self._exit_listeners):
                     try:
-                        exit_listener(code)
+                        exit_listener(self._exit_code or 0)
                     except Exception:  # pragma: no cover
                         continue
 
@@ -278,25 +286,36 @@ class ServerProcess:
             return
         self._set_state(ServerState.STOPPING)
         with contextlib.suppress(ServerError):
-            await self.send("stop")
+            await self.send(self._stop_command())
         try:
-            await asyncio.wait_for(self._process.wait(), timeout=timeout)
+            await asyncio.wait_for(self.wait(), timeout=timeout)
             return
         except TimeoutError:
             pass
         with contextlib.suppress(ProcessLookupError, OSError):
             self._process.terminate()
         try:
-            await asyncio.wait_for(self._process.wait(), timeout=10)
+            await asyncio.wait_for(self.wait(), timeout=10)
         except TimeoutError:
             with contextlib.suppress(ProcessLookupError, OSError):
                 self._process.kill()
-            await self._process.wait()
+            await self.wait()
+
+    def _stop_command(self) -> str:
+        """Return the console command that shuts this server kind down."""
+        if self.server.project is Project.VELOCITY:
+            return "shutdown"
+        if self.server.project is Project.WATERFALL:
+            return "end"
+        return "stop"
 
     async def wait(self) -> int:
         if self._process is None:
-            return self._exit_code or 0
-        return await self._process.wait()
+            return self._exit_code if self._exit_code is not None else 0
+        code = await self._process.wait()
+        if self._exit_code is None:
+            self._exit_code = code
+        return code
 
     def terminate_now(self) -> None:
         """Best-effort synchronous termination, used when the app is closing."""

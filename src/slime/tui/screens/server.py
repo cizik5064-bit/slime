@@ -151,6 +151,8 @@ class ServerScreen(Screen):
             return
         process.add_line_listener(self._line_listener)
         process.add_state_listener(self._state_listener)
+        for line in process.lines:
+            self.append_line(line)
         self.append_line(f"[slime] Starting {self.server.name}…")
         self.update_status(process.state)
 
@@ -187,7 +189,7 @@ class ServerScreen(Screen):
             if process is not None and process.is_running:
                 await process.stop()
             await asyncio.to_thread(self.slime.store.delete, self.server.name)
-        except SlimeError as error:
+        except (SlimeError, OSError) as error:
             self.slime.notify_error(error)
             return
         self.slime.processes.pop(self.server.name, None)

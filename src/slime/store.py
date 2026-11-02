@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 from datetime import UTC, datetime
@@ -89,11 +90,24 @@ class ServerStore:
     # ---------------------------------------------------------------- create
     def create_directory(self, name: str) -> Path:
         directory = self.path(name)
-        if directory.exists() and any(directory.iterdir()):
-            raise ServerError(
-                f"Directory {directory} already exists and is not empty.",
-                hint="Choose another server name or remove the directory.",
-            )
+        if directory.exists():
+            if not directory.is_dir():
+                raise ServerError(
+                    f"{directory} already exists but is not a directory.",
+                    hint="Choose another server name or remove the conflicting file.",
+                )
+            try:
+                not_empty = any(directory.iterdir())
+            except OSError as exc:
+                raise ServerError(
+                    f"Cannot inspect {directory}: {exc}",
+                    hint="Check permissions or choose another server name.",
+                ) from exc
+            if not_empty:
+                raise ServerError(
+                    f"Directory {directory} already exists and is not empty.",
+                    hint="Choose another server name or remove the directory.",
+                )
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
@@ -122,15 +136,59 @@ class ServerStore:
             return False, None
         try:
             process = psutil.Process(pid)
-            if not process.is_running():
+            if not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
                 return False, pid
             # Guard against PID reuse: a stale PID file should not report an
             # unrelated process as our server.
             if "java" not in process.name().lower():
                 return False, pid
+            if not self._matches_server(process, name):
+                return False, pid
             return True, pid
         except psutil.Error:
             return False, pid
+
+    def _matches_server(self, process: psutil.Process, name: str) -> bool:
+        """Check that a live PID really belongs to the server directory.
+
+        A reused PID may point at any Java process. Compare its working
+        directory and command line with the server's own directory instead of
+        trusting the process name alone.
+        """
+        directory = self.path(name)
+        try:
+            cwd = process.cwd()
+        except (psutil.Error, OSError):
+            cwd = None
+        if cwd:
+            try:
+                if Path(cwd).resolve() == directory.resolve():
+                    return True
+            except OSError:
+                pass
+
+        try:
+            command = " ".join(process.cmdline())
+        except (psutil.Error, OSError):
+            return False
+        if not command:
+            return False
+
+        normalized = command.replace("\\", "/").lower()
+        try:
+            directory_text = str(directory.resolve()).replace("\\", "/").lower()
+        except OSError:
+            directory_text = str(directory).replace("\\", "/").lower()
+        if directory_text and directory_text in normalized:
+            return True
+
+        jar_file = "server.jar"
+        with contextlib.suppress(ServerError, ValidationError, OSError, ValueError):
+            jar_file = self._read(self.metadata_path(name)).jar_file
+        return (
+            jar_file.lower() in normalized
+            and directory.name.lower() in normalized
+        )
 
     def clear_pid(self, name: str) -> None:
         self.pid_path(name).unlink(missing_ok=True)

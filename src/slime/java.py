@@ -16,7 +16,11 @@ from .api.adoptium import AdoptiumClient, current_arch, current_os
 from .config import Config
 from .errors import JavaError
 from .models import JavaInstall, Server
-from .utils.archives import extract_archive, find_java_executable
+from .utils.archives import (
+    extract_archive,
+    find_java_executable,
+    java_executable_name,
+)
 from .utils.downloads import download_file
 
 DownloadProgress = Callable[[int, int | None], None]
@@ -133,7 +137,7 @@ class JavaManager:
         final = self.paths.java / f"temurin-{major}-{os_name}-{arch}"
         try:
             extract_archive(archive, staging)
-            executable = find_java_executable(staging)
+            executable = find_java_executable(staging, os_name=os_name)
             if executable is None:
                 raise JavaError(
                     "The Temurin archive did not contain a Java executable.",
@@ -156,7 +160,7 @@ class JavaManager:
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
 
-        executable = final / "bin" / ("java.exe" if os.name == "nt" else "java")
+        executable = final / "bin" / java_executable_name(os_name)
         if not executable.is_file():
             raise JavaError(
                 f"Java was extracted to {final}, but {executable.name} is missing.",
@@ -191,11 +195,15 @@ class JavaManager:
         home = Path(install.home)
         java_root = self.paths.java.resolve()
         try:
-            home.resolve().relative_to(java_root)
+            relative = home.resolve().relative_to(java_root)
         except ValueError as exc:
             raise JavaError(
                 f"Refusing to delete {home}: it is outside Slime's Java directory."
             ) from exc
+        if not relative.parts or len(relative.parts) != 1:
+            raise JavaError(
+                f"Refusing to delete {home}: it is not a managed Java runtime."
+            )
         shutil.rmtree(home)
         return True
 

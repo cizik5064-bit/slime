@@ -38,6 +38,7 @@ def _extract_zip(archive: Path, destination: Path) -> None:
 
 
 def _extract_tar(archive: Path, destination: Path) -> None:
+    pending_links: list[tuple[Path, str, bool]] = []
     with tarfile.open(archive, "r:*") as bundle:
         for member in bundle.getmembers():
             target = _safe_target(destination, member.name)
@@ -51,7 +52,14 @@ def _extract_tar(archive: Path, destination: Path) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if target.exists() or target.is_symlink():
                     target.unlink()
-                os.symlink(member.linkname, target, target_is_directory=member.isdir())
+                try:
+                    os.symlink(
+                        member.linkname, target, target_is_directory=member.isdir()
+                    )
+                except OSError:
+                    # Creating symlinks needs extra privileges on Windows.
+                    # Defer and copy the target file if it exists.
+                    pending_links.append((target, member.linkname, member.isdir()))
                 continue
             if not member.isfile():
                 continue
@@ -63,6 +71,18 @@ def _extract_tar(archive: Path, destination: Path) -> None:
                 shutil.copyfileobj(source, handle)
             if member.mode and os.name != "nt":
                 target.chmod(member.mode & 0o777)
+
+    for target, linkname, is_directory in pending_links:
+        if is_directory:
+            continue
+        link_source = (target.parent / linkname).resolve()
+        try:
+            link_source.relative_to(destination.resolve())
+        except ValueError:
+            continue
+        if link_source.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(link_source, target)
 
 
 def extract_archive(archive: Path, destination: Path) -> None:
@@ -85,9 +105,20 @@ def extract_archive(archive: Path, destination: Path) -> None:
         raise ArchiveError(f"Could not extract {archive.name}: {exc}") from exc
 
 
-def find_java_executable(root: Path) -> Path | None:
+def java_executable_name(os_name: str | None = None) -> str:
+    """Return the Java executable file name for a target OS.
+
+    ``None`` means the OS Slime is currently running on. Adoptium uses
+    ``windows``, ``linux`` and ``mac`` as OS names.
+    """
+    if os_name is None:
+        return "java.exe" if os.name == "nt" else "java"
+    return "java.exe" if os_name.lower() in {"windows", "win", "nt"} else "java"
+
+
+def find_java_executable(root: Path, *, os_name: str | None = None) -> Path | None:
     """Find ``bin/java`` (or ``bin/java.exe``) at or one level below ``root``."""
-    executable = "java.exe" if os.name == "nt" else "java"
+    executable = java_executable_name(os_name)
     candidates = [root / "bin" / executable]
     if root.is_dir():
         candidates += [child / "bin" / executable for child in root.iterdir() if child.is_dir()]

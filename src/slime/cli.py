@@ -713,6 +713,7 @@ async def _run_foreground(
         server_dir,
         java_install.path,
         log_dir=app_context.config.paths.logs,
+        java_home=java_install.home,
     )
     process.add_line_listener(
         lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
@@ -751,7 +752,8 @@ async def _run_foreground(
         if process.is_running:
             console.print("[yellow]Stopping server…[/yellow]")
             await process.stop()
-        return process.exit_code or 0
+        code = process.exit_code
+        return code if code is not None else 0
     finally:
         if process.is_running:
             await process.stop()
@@ -780,9 +782,12 @@ def server_eula(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Server name.")],
     accept: Annotated[
-        bool,
-        typer.Option("--accept/--revoke", help="Accept or revoke the Minecraft EULA."),
-    ] = True,
+        bool | None,
+        typer.Option(
+            "--accept/--revoke",
+            help="Accept or revoke the Minecraft EULA. Without a flag Slime asks.",
+        ),
+    ] = None,
 ) -> None:
     """Accept (or revoke) the Minecraft EULA for a server."""
     app_context = _ctx(context)
@@ -794,6 +799,23 @@ def server_eula(
                 "require eula.txt."
             )
             return
+        if accept is None:
+            if not sys.stdin.isatty():
+                raise ServerError(
+                    "Refusing to change the EULA state without an explicit choice.",
+                    hint=f"Pass --accept or --revoke, for example: "
+                    f"slime server eula {name} --accept",
+                )
+            accepted = Confirm.ask(
+                "Do you accept the Minecraft EULA at https://aka.ms/MinecraftEULA?",
+                default=False,
+            )
+            accept = bool(accepted)
+            if not accept and not Confirm.ask(
+                f"Revoke the EULA for '{name}'?", default=False
+            ):
+                console.print("Cancelled.")
+                raise typer.Exit()
         write_eula(app_context.store.path(name) / "eula.txt", accepted=accept)
         server.eula_accepted = accept
         app_context.store.save(server)

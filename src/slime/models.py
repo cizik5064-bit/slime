@@ -296,26 +296,59 @@ class Server:
             name = str(data["name"])
         except KeyError as exc:
             raise ValidationError("Server metadata is missing the 'name' field.") from exc
-        try:
-            return cls(
-                name=name,
-                project=Project.parse(str(data.get("project", "paper"))),
-                minecraft_version=str(data["minecraft_version"]),
-                build=int(data.get("build", 0)),
-                java_major=int(data.get("java_major", 21)),
-                memory_mb=int(data.get("memory_mb", 2048)),
-                port=int(data.get("port", 25565)),
-                java_path=data.get("java_path"),
-                eula_accepted=bool(data.get("eula_accepted", False)),
-                jar_file=str(data.get("jar_file", "server.jar")),
-                extra_args=list(data.get("extra_args") or []),
-                created_at=str(data.get("created_at") or ""),
-                schema=int(data.get("schema", 1)),
+
+        def integer(field_name: str, default: int) -> int:
+            value = data.get(field_name, default)
+            if isinstance(value, bool):
+                raise ValidationError(
+                    f"Server '{name}' metadata field '{field_name}' must be an integer."
+                )
+            try:
+                return int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(
+                    f"Server '{name}' metadata field '{field_name}' must be an "
+                    f"integer, got {value!r}."
+                ) from exc
+
+        extra_args = data.get("extra_args")
+        if extra_args is None:
+            extra_args = []
+        elif not isinstance(extra_args, list):
+            raise ValidationError(
+                f"Server '{name}' metadata field 'extra_args' must be a list of strings."
             )
+
+        java_path = data.get("java_path")
+        if java_path is not None:
+            java_path = str(java_path) or None
+
+        created_at = data.get("created_at")
+        if not created_at:
+            created_at = datetime.now(UTC).isoformat(timespec="seconds")
+
+        try:
+            minecraft_version = str(data["minecraft_version"])
         except KeyError as exc:
             raise ValidationError(
-                f"Server '{name}' metadata is missing the {exc.args[0]!r} field."
+                f"Server '{name}' metadata is missing the 'minecraft_version' field."
             ) from exc
+
+        return cls(
+            name=name,
+            project=Project.parse(str(data.get("project", "paper"))),
+            minecraft_version=minecraft_version,
+            build=integer("build", 0),
+            java_major=integer("java_major", 21),
+            memory_mb=integer("memory_mb", 2048),
+            port=integer("port", 25565),
+            java_path=java_path,
+            eula_accepted=bool(data.get("eula_accepted", False)),
+            jar_file=str(data.get("jar_file", "server.jar")),
+            extra_args=[str(arg) for arg in extra_args],
+            created_at=str(created_at),
+            schema=integer("schema", 1),
+        )
 
 
 @dataclass(slots=True)

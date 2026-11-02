@@ -143,6 +143,30 @@ def test_server_eula_and_info(
     assert payload["path"] == str(store.path("survival"))
 
 
+def test_server_eula_requires_explicit_flag_non_interactive(
+    runner: CliRunner, home: Path
+) -> None:
+    from slime.config import Config
+    from slime.store import ServerStore
+
+    store = ServerStore(Config(home))
+    store.save(
+        Server(
+            name="survival",
+            project="paper",
+            minecraft_version="1.21.4",
+            build=42,
+            java_major=21,
+        )
+    )
+
+    result = runner.invoke(app, ["server", "eula", "survival"])
+    assert result.exit_code == 1
+    assert "--accept or --revoke" in result.output
+    assert store.get("survival").eula_accepted is False
+    assert not (store.path("survival") / "eula.txt").exists()
+
+
 def test_doctor_json(runner: CliRunner, home: Path) -> None:
     result = runner.invoke(app, ["doctor", "--json"])
     assert result.exit_code == 0

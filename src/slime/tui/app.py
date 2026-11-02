@@ -112,6 +112,7 @@ class SlimeApp(App[None]):
             self.store.path(server.name),
             install.path,
             log_dir=self.config.paths.logs,
+            java_home=install.home,
         )
         def on_state(state: ServerState, name: str = server.name) -> None:
             self._on_process_state(name, state)

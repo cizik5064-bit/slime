@@ -54,3 +54,7 @@ tmp/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local working memory (not part of the repository)
+CONTEXT.md
+

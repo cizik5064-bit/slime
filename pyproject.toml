@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slime-mc"
-version = "1.1.0"
+version = "1.2.0"
 description = "A friendly Minecraft server manager for PaperMC servers, with a TUI and a CLI."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Slime contributors" }]
-keywords = ["minecraft", "server", "papermc", "paper", "velocity", "tui", "cli", "adoptium", "java"]
+keywords = ["minecraft", "server", "papermc", "paper", "purpur", "velocity", "tui", "cli", "adoptium", "java"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
@@ -40,6 +40,7 @@ dependencies = [
 dev = [
   "pytest>=8.2",
   "pytest-asyncio>=0.23",
+  "pytest-cov>=5.0",
   "respx>=0.21",
   "ruff>=0.6",
   "mypy>=1.11",
@@ -81,6 +82,15 @@ testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = ["slime"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+]
 
 [tool.ruff]
 line-length = 100

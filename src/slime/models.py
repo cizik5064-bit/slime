@@ -20,10 +20,11 @@ from .errors import ValidationError
 
 
 class Project(StrEnum):
-    """Projects published through the PaperMC Fill API."""
+    """Server and proxy projects supported by Slime."""
 
     PAPER = "paper"
     FOLIA = "folia"
+    PURPUR = "purpur"
     VELOCITY = "velocity"
     WATERFALL = "waterfall"
 
@@ -32,6 +33,7 @@ class Project(StrEnum):
         return {
             Project.PAPER: "Paper",
             Project.FOLIA: "Folia",
+            Project.PURPUR: "Purpur",
             Project.VELOCITY: "Velocity",
             Project.WATERFALL: "Waterfall",
         }[self]

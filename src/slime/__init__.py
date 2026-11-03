@@ -1,8 +1,8 @@
-"""Slime — a friendly Minecraft server manager."""
+"""Slime - a friendly Minecraft server manager."""
 
 from __future__ import annotations
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 APP_NAME = "Slime"
 APP_TAGLINE = "Minecraft server manager"
 PROJECT_URL = "https://github.com/cizik5064-bit/slime"

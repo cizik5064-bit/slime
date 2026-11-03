@@ -115,6 +115,21 @@ def test_create_proxy(setup: tuple[Provisioner, ServerStore, FakePaperMC]) -> No
     assert not (directory / "eula.txt").exists()
 
 
+def test_create_purpur_server(
+    setup: tuple[Provisioner, ServerStore, FakePaperMC],
+) -> None:
+    provisioner, store, _ = setup
+    server = provisioner.create(
+        CreateRequest(name="purpur", project="purpur", accept_eula=True)
+    )
+    directory = store.path("purpur")
+    assert server.project == "purpur"
+    assert server.java_major == 21
+    assert (directory / "server.jar").is_file()
+    assert (directory / "server.properties").is_file()
+    assert "eula=true" in (directory / "eula.txt").read_text(encoding="utf-8")
+
+
 def test_explicit_build_and_version(
     setup: tuple[Provisioner, ServerStore, FakePaperMC],
 ) -> None:

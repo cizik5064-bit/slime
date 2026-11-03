@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Button, DataTable, Static
@@ -63,9 +64,9 @@ class DashboardView(Container):
                     else "[dim]stopped[/dim]"
                 )
             table.add_row(
-                server.name,
+                escape(server.name),
                 server.project.display_name,
-                server.minecraft_version,
+                escape(server.minecraft_version),
                 str(server.build),
                 str(server.port),
                 f"{server.memory_mb} MB",

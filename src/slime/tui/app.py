@@ -10,7 +10,9 @@ from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.widgets import Footer, Header
 
+from ..api.catalog import ProjectCatalog
 from ..api.papermc import PaperMCClient
+from ..api.purpur import PurpurClient
 from ..config import Config
 from ..errors import SlimeError
 from ..java import JavaManager
@@ -43,10 +45,17 @@ class SlimeApp(App[None]):
         super().__init__()
         self.config = config
         self.store = ServerStore(config)
-        self.papermc = PaperMCClient(
-            config.settings.fill_base_url,
-            user_agent=config.settings.user_agent,
-            timeout=config.settings.request_timeout,
+        self.papermc = ProjectCatalog(
+            PaperMCClient(
+                config.settings.fill_base_url,
+                user_agent=config.settings.user_agent,
+                timeout=config.settings.request_timeout,
+            ),
+            PurpurClient(
+                config.settings.purpur_base_url,
+                user_agent=config.settings.user_agent,
+                timeout=config.settings.request_timeout,
+            ),
         )
         self.java_manager = JavaManager(config)
         self.provisioner = Provisioner(

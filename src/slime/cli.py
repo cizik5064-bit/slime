@@ -29,7 +29,9 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from . import APP_NAME, PROJECT_URL, __version__
+from .api.catalog import ProjectCatalog
 from .api.papermc import PaperMCClient
+from .api.purpur import PurpurClient
 from .checks import CheckResult, CheckStatus, has_failures, run_checks, summarize
 from .config import Config, Settings
 from .errors import JavaError, ServerError, SlimeError
@@ -63,7 +65,7 @@ class AppContext:
         self.config = config
         self.verbose = verbose
         self._store: ServerStore | None = None
-        self._papermc: PaperMCClient | None = None
+        self._catalog: ProjectCatalog | None = None
         self._java: JavaManager | None = None
         self._provisioner: Provisioner | None = None
 
@@ -74,14 +76,22 @@ class AppContext:
         return self._store
 
     @property
-    def papermc(self) -> PaperMCClient:
-        if self._papermc is None:
-            self._papermc = PaperMCClient(
-                self.config.settings.fill_base_url,
-                user_agent=self.config.settings.user_agent,
-                timeout=self.config.settings.request_timeout,
+    def catalog(self) -> ProjectCatalog:
+        if self._catalog is None:
+            settings = self.config.settings
+            self._catalog = ProjectCatalog(
+                PaperMCClient(
+                    settings.fill_base_url,
+                    user_agent=settings.user_agent,
+                    timeout=settings.request_timeout,
+                ),
+                PurpurClient(
+                    settings.purpur_base_url,
+                    user_agent=settings.user_agent,
+                    timeout=settings.request_timeout,
+                ),
             )
-        return self._papermc
+        return self._catalog
 
     @property
     def java_manager(self) -> JavaManager:
@@ -93,7 +103,7 @@ class AppContext:
     def provisioner(self) -> Provisioner:
         if self._provisioner is None:
             self._provisioner = Provisioner(
-                self.config, self.store, self.papermc, self.java_manager
+                self.config, self.store, self.catalog, self.java_manager
             )
         return self._provisioner
 
@@ -131,7 +141,7 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="slime",
     help=(
-        "[bold green]Slime[/bold green] — a friendly Minecraft server manager.\n\n"
+        "[bold green]Slime[/bold green] - a friendly Minecraft server manager.\n\n"
         "Run [cyan]slime[/cyan] with no arguments to open the TUI."
     ),
     no_args_is_help=False,
@@ -298,7 +308,7 @@ def _prompt_project() -> Project:
 
 def _prompt_version(context: AppContext, project: Project) -> str:
     try:
-        versions = context.papermc.versions(project.value)
+        versions = context.catalog.versions(project.value)
     except SlimeError:
         return Prompt.ask("Minecraft version (or 'latest')", default="latest")
     table = Table(title=f"{project.display_name} versions", show_header=False, box=None)
@@ -418,7 +428,7 @@ def server_create(
     name: Annotated[str, typer.Argument(help="Server name, also used as the directory name.")],
     project: Annotated[
         str | None,
-        typer.Option("--project", "-p", help="paper, folia, velocity or waterfall."),
+        typer.Option("--project", "-p", help="paper, folia, purpur, velocity or waterfall."),
     ] = None,
     version: Annotated[
         str | None,
@@ -456,7 +466,7 @@ def server_create(
         typer.Option("--motd", help="Message of the day written to server.properties."),
     ] = None,
 ) -> None:
-    """Download a PaperMC build and create a new server directory."""
+    """Download a server build and create a new server directory."""
     app_context = _ctx(context)
     interactive = sys.stdin.isatty()
 
@@ -885,7 +895,7 @@ def server_path(
 def server_versions(
     context: typer.Context,
     project: Annotated[
-        str, typer.Option("--project", "-p", help="paper, folia, velocity or waterfall.")
+        str, typer.Option("--project", "-p", help="paper, folia, purpur, velocity or waterfall.")
     ] = "paper",
     limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum versions to show.")] = 30,
     as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
@@ -894,7 +904,7 @@ def server_versions(
     app_context = _ctx(context)
     with _errors():
         project_obj = Project.parse(project)
-        versions = app_context.papermc.versions(project_obj.value)
+        versions = app_context.catalog.versions(project_obj.value)
     if as_json:
         console.print_json(data=versions[: max(1, limit)])
         return
@@ -913,7 +923,7 @@ def server_builds(
     context: typer.Context,
     version: Annotated[str, typer.Argument(help="Minecraft version.")],
     project: Annotated[
-        str, typer.Option("--project", "-p", help="paper, folia, velocity or waterfall.")
+        str, typer.Option("--project", "-p", help="paper, folia, purpur, velocity or waterfall.")
     ] = "paper",
     channel: Annotated[
         str | None, typer.Option("--channel", help="Filter by STABLE, BETA or ALPHA.")
@@ -925,7 +935,7 @@ def server_builds(
     app_context = _ctx(context)
     with _errors():
         project_obj = Project.parse(project)
-        builds = app_context.papermc.builds(project_obj.value, version)
+        builds = app_context.catalog.builds(project_obj.value, version)
     if channel:
         builds = [build for build in builds if build.channel == channel.upper()]
     builds = builds[-max(1, limit) :]

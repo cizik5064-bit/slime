@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-03
+
+### Added
+
+- Purpur server support through the official Purpur API v2. Purpur versions and
+  builds are available in `slime server versions --project purpur`,
+  `slime server builds VERSION --project purpur`, the CLI create flow and the
+  TUI wizard.
+- Test coverage reporting: CI runs pytest with coverage and uploads the result
+  to Codecov.
+
+### Changed
+
+- Relocated the project list so Paper, Folia, Purpur, Velocity and Waterfall
+  share one download-API catalog.
+- README badges are grouped by status, quality and community.
+
 ## [1.1.0] - 2026-11-02
 
 ### Added
@@ -121,5 +138,7 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.2.0
+[1.1.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.1.0
 [1.0.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.0.0

@@ -39,7 +39,7 @@ class CreateServerScreen(ModalScreen):
         with Container(id="create-dialog"):
             yield Static("Create a server", classes="dialog-title")
             yield Static(
-                "Slime downloads the jar from PaperMC and prepares the server "
+                "Slime downloads the server jar and prepares the server "
                 "directory for you.",
                 classes="dialog-subtitle",
             )
@@ -87,7 +87,7 @@ class CreateServerScreen(ModalScreen):
             yield Label("Java")
             yield Select(
                 [
-                    ("Auto — required version (recommended)", "auto"),
+                    ("Auto - required version (recommended)", "auto"),
                     ("Java 8", "8"),
                     ("Java 11", "11"),
                     ("Java 17", "17"),
@@ -104,7 +104,7 @@ class CreateServerScreen(ModalScreen):
                 yield Label("Accept the Minecraft EULA")
                 yield Switch(id="eula")
             yield Static(
-                "https://aka.ms/MinecraftEULA — required for Paper and Folia.",
+                "https://aka.ms/MinecraftEULA - required for Paper and Folia.",
                 classes="hint",
             )
 
@@ -263,7 +263,7 @@ class CreateServerScreen(ModalScreen):
             return
 
         self._set_busy(True)
-        self._set_status("Contacting PaperMC…")
+        self._set_status("Contacting the download API…")
 
         def on_progress(stage: str, done: int, total: int | None) -> None:
             self.slime.call_from_thread(self._update_progress, stage, done, total)

@@ -53,6 +53,7 @@ class Settings:
     default_port: int = 25565
     accept_eula_default: bool = False
     fill_base_url: str = "https://fill.papermc.io/v3"
+    purpur_base_url: str = "https://api.purpurmc.org/v2/purpur"
     adoptium_base_url: str = "https://api.adoptium.net/v3"
     user_agent: str = f"Slime/{__version__} (+https://github.com/cizik5064-bit/slime)"
     request_timeout: float = 30.0

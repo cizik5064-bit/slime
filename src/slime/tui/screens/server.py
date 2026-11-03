@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from typing import TYPE_CHECKING, ClassVar
 
+from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -70,8 +71,8 @@ class ServerScreen(Screen):
 
     def on_mount(self) -> None:
         self.query_one("#server-title", Static).update(
-            f"[bold]{self.server.name}[/bold] · {self.server.project.display_name} "
-            f"{self.server.minecraft_version} (build {self.server.build}) · "
+            f"[bold]{escape(self.server.name)}[/bold] · {self.server.project.display_name} "
+            f"{escape(self.server.minecraft_version)} (build {self.server.build}) · "
             f"{self.server.memory_mb} MB · port {self.server.port}"
         )
         process = self.slime.get_process(self.server.name)

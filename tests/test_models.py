@@ -24,6 +24,7 @@ class TestProject:
         assert Project.parse("paper") is Project.PAPER
         assert Project.parse(" PAPER ") is Project.PAPER
         assert Project.parse(Project.VELOCITY) is Project.VELOCITY
+        assert Project.parse("purpur") is Project.PURPUR
 
     def test_parse_rejects_unknown(self) -> None:
         with pytest.raises(ValidationError, match="Unknown project"):
@@ -33,6 +34,8 @@ class TestProject:
         assert Project.PAPER.display_name == "Paper"
         assert Project.VELOCITY.is_proxy is True
         assert Project.PAPER.is_proxy is False
+        assert Project.PURPUR.display_name == "Purpur"
+        assert Project.PURPUR.kind == "server"
         assert Project.WATERFALL.kind == "proxy"
         assert Project.FOLIA.kind == "server"
 
@@ -109,6 +112,8 @@ class TestVersions:
             ("paper", "1.20.5", 21),
             ("paper", "1.21.11", 21),
             ("folia", "1.21.4", 21),
+            ("purpur", "1.21.8", 21),
+            ("purpur", "26.3", 25),
             ("paper", "26.1", 25),
             ("paper", "26.3", 25),
             ("paper", "24w14a", 21),

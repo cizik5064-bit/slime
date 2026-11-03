@@ -177,7 +177,7 @@ def test_doctor_json(runner: CliRunner, home: Path) -> None:
 def test_server_create_with_fake_api(
     runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("slime.cli.PaperMCClient", lambda *a, **k: FakePaperMC())
+    monkeypatch.setattr("slime.cli.ProjectCatalog", lambda *a, **k: FakePaperMC())
 
     def fake_download(url: str, destination: Path, **kwargs: object) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)

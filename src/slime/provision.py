@@ -6,7 +6,7 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .api.papermc import PaperMCClient
+from .api.catalog import ProjectCatalog
 from .config import Config
 from .errors import ServerError
 from .java import JavaManager
@@ -44,18 +44,18 @@ class CreateRequest:
 
 
 class Provisioner:
-    """Creates new server directories from PaperMC builds."""
+    """Creates new server directories from download API builds."""
 
     def __init__(
         self,
         config: Config,
         store: ServerStore,
-        papermc: PaperMCClient,
+        catalog: ProjectCatalog,
         java_manager: JavaManager | None = None,
     ) -> None:
         self.config = config
         self.store = store
-        self.papermc = papermc
+        self.catalog = catalog
         self.java_manager = java_manager
 
     def create(
@@ -74,7 +74,7 @@ class Provisioner:
 
         version = request.version.strip()
         if not version:
-            version = self.papermc.latest_version(project.value)
+            version = self.catalog.latest_version(project.value)
 
         build = self._resolve_build(project, version, request.build, request.channel)
         download = build.server_download
@@ -132,7 +132,7 @@ class Provisioner:
                 ensure_server_properties(
                     directory / "server.properties",
                     port=port,
-                    motd=request.motd or f"{name} — powered by Slime",
+                    motd=request.motd or f"{name} - powered by Slime",
                 )
                 write_eula(directory / "eula.txt", accepted=server.eula_accepted)
             else:
@@ -162,5 +162,5 @@ class Provisioner:
         channel: str,
     ) -> BuildInfo:
         if build is not None:
-            return self.papermc.build(project.value, version, build)
-        return self.papermc.latest_build(project.value, version, channel=channel)
+            return self.catalog.build(project.value, version, build)
+        return self.catalog.latest_build(project.value, version, channel=channel)

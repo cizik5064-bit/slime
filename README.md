@@ -1,9 +1,32 @@
 # Slime
 
-[![CI](https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml/badge.svg)](https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/slime-mc.svg)](https://pypi.org/project/slime-mc/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+<p align="center">
+  <a href="https://github.com/cizik5064-bit/slime/actions/workflows/release.yml"><img src="https://github.com/cizik5064-bit/slime/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml"><img src="https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/slime-mc/"><img src="https://img.shields.io/pypi/v/slime-mc.svg" alt="PyPI"></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+"></a>
+</p>
+
+<p align="center">
+  <a href="https://codecov.io/gh/cizik5064-bit/slime"><img src="https://codecov.io/gh/cizik5064-bit/slime/branch/main/graph/badge.svg" alt="codecov"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
+  <a href="https://mypy-lang.org/"><img src="https://www.mypy-lang.org/static/mypy_badge.svg" alt="Checked with mypy"></a>
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/slime-mc/"><img src="https://img.shields.io/pypi/dm/slime-mc.svg" alt="PyPI Downloads"></a>
+  <a href="https://pepy.tech/project/slime-mc"><img src="https://static.pepy.tech/badge/slime-mc" alt="PyPI Total Downloads"></a>
+  <a href="https://github.com/cizik5064-bit/slime/stargazers"><img src="https://img.shields.io/github/stars/cizik5064-bit/slime" alt="GitHub stars"></a>
+  <a href="https://github.com/cizik5064-bit/slime/network"><img src="https://img.shields.io/github/forks/cizik5064-bit/slime" alt="GitHub forks"></a>
+  <a href="https://github.com/cizik5064-bit/slime/issues"><img src="https://img.shields.io/github/issues/cizik5064-bit/slime" alt="GitHub issues"></a>
+  <a href="https://github.com/cizik5064-bit/slime/graphs/contributors"><img src="https://img.shields.io/github/contributors/cizik5064-bit/slime" alt="Contributors"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/cizik5064-bit/slime/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey" alt="Platform: Windows | Linux">
+  <img src="https://img.shields.io/badge/minecraft-paper%20%7C%20folia%20%7C%20velocity%20%7C%20waterfall-blue" alt="Minecraft: Paper | Folia | Velocity | Waterfall">
+</p>
 
 **A friendly Minecraft server manager for humans, not sysadmins.**
 
@@ -11,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.1.0.** Core features are implemented and
+> **Status: 1.2.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -33,38 +56,42 @@ Or just run `slime` and use the TUI.
 
 ## Features
 
-- **PaperMC Fill API v3** — download the latest builds of Paper, Folia,
+- **PaperMC Fill API v3** - download the latest builds of Paper, Folia,
   Velocity and Waterfall directly from the official API. No scraping, no
   BuildTools.
-- **Temurin Java manager** — install the exact Eclipse Adoptium JDK a server
+- **Purpur support** - Purpur builds come straight from the official
+  [Purpur API v2](https://api.purpurmc.org/v2/purpur), with versions and builds
+  listed alongside the PaperMC projects.
+- **Temurin Java manager** - install the exact Eclipse Adoptium JDK a server
   needs (8, 11, 16, 17, 21, 25), per platform and architecture. Slime downloads
   the archive, verifies the SHA-256 checksum, extracts it into `~/.slime/java`
   and records the exact `bin/java` path.
-- **TUI + CLI** — a Textual interface for browsing servers, editing settings,
+- **TUI + CLI** - a Textual interface for browsing servers, editing settings,
   watching the console live and sending commands; a Typer CLI for automation.
-- **Server lifecycle** — create, start, stop, restart, delete and inspect
+- **Server lifecycle** - create, start, stop, restart, delete and inspect
   servers. A foreground console streams logs and accepts commands via stdin.
-- **Environment checks** — Python, OS, disk space, available RAM, port
+- **Environment checks** - Python, OS, disk space, available RAM, port
   conflicts, EULA status, server jar, `server.properties` consistency and Java
   availability.
-- **Beginner-friendly defaults** — sensible `server.properties`, MOTD, port,
+- **Beginner-friendly defaults** - sensible `server.properties`, MOTD, port,
   memory and Java version detection; clear error messages with actionable hints.
-- **Cross-platform** — Windows 10+ and Linux (macOS works but is not a primary
+- **Cross-platform** - Windows 10+ and Linux (macOS works but is not a primary
   target). Windows 7/8/8.1 will require a separate legacy build; see
   [Platform support](#platform-support).
-- **Local-first** — everything lives in `~/.slime` by default. No account, no
+- **Local-first** - everything lives in `~/.slime` by default. No account, no
   telemetry, no cloud.
 
 ## Supported projects
 
 | Project | Kind | API | Java (by default) |
 | --- | --- | --- | --- |
-| Paper | Server | [Fill v3](https://fill.papermc.io/v3) | 21 for 1.20.5+, 17 for 1.17–1.20.4, 8 for ≤1.16.5 |
+| Paper | Server | [Fill v3](https://fill.papermc.io/v3) | 21 for 1.20.5+, 17 for 1.17-1.20.4, 8 for ≤1.16.5 |
 | Folia | Server | Fill v3 | same as Paper |
+| Purpur | Server | [Purpur v2](https://api.purpurmc.org/v2/purpur) | same as Paper |
 | Velocity | Proxy | Fill v3 | 17 |
 | Waterfall | Proxy | Fill v3 | 11 |
 
-Slime only uses the official PaperMC Fill API for these four projects. Spigot,
+Slime only uses the official download APIs for these five projects. Spigot,
 Forge, NeoForge and Fabric are not supported yet.
 
 Proxies generate their own `velocity.toml` / `waterfall.yml` on first start.
@@ -75,7 +102,7 @@ you.
 
 - **Python 3.11+**
 - **Windows 10+** or **Linux** (x86-64 or ARM64)
-- Internet access for the first setup (PaperMC and Adoptium APIs)
+- Internet access for the first setup (PaperMC, Purpur and Adoptium APIs)
 - At least 1 GiB of free disk space; 5 GiB+ recommended
 
 ## Installation
@@ -117,18 +144,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.1.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.1.0-windows-x64.exe --version
-.\slime-1.1.0-windows-x64.exe
+Get-FileHash .\slime-1.2.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.2.0-windows-x64.exe --version
+.\slime-1.2.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.1.0-linux-x64.sha256
-chmod +x slime-1.1.0-linux-x64
-./slime-1.1.0-linux-x64 --version
-./slime-1.1.0-linux-x64
+sha256sum -c slime-1.2.0-linux-x64.sha256
+chmod +x slime-1.2.0-linux-x64
+./slime-1.2.0-linux-x64 --version
+./slime-1.2.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.
@@ -241,7 +268,7 @@ With no arguments, `slime` opens the TUI when stdout is a terminal.
 
 ```text
 slime server list [--json]
-slime server create NAME [--project paper|folia|velocity|waterfall]
+slime server create NAME [--project paper|folia|purpur|velocity|waterfall]
                           [--version VERSION] [--build N] [--channel STABLE|BETA|ALPHA|ANY]
                           [--memory MB] [--port PORT] [--java MAJOR]
                           [--motd TEXT] [--accept-eula]
@@ -379,6 +406,8 @@ src/slime/
   cli.py            # Typer commands
   tui/              # Textual app, screens, CSS
   api/papermc.py    # Fill API v3 client
+  api/purpur.py     # Purpur API v2 client
+  api/catalog.py    # routes a project to its download API
   api/adoptium.py   # Adoptium API v3 client
   java.py           # Temurin install/discovery
   provision.py      # create-server flow
@@ -398,6 +427,7 @@ services.
 
 - [x] Core architecture, models and validation
 - [x] Fill API v3 client (Paper, Folia, Velocity, Waterfall)
+- [x] Purpur API v2 client
 - [x] Adoptium Temurin client and Java manager
 - [x] CLI (servers, Java, diagnostics, config)
 - [x] Textual TUI (dashboard, server console, create wizard, Java, doctor)
@@ -420,4 +450,4 @@ explicit acceptance and never accepts it for you.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

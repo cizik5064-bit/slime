@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.4.0.** Core features are implemented and
+> **Status: 1.5.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -68,14 +68,21 @@ Or just run `slime` and use the TUI.
   and records the exact `bin/java` path.
 - **TUI + CLI** - a Textual interface for browsing servers, editing settings,
   watching the console live and sending commands; a Typer CLI for automation.
-- **Server editor** - change the server name, min/max RAM, launch flags
-  (Aikar's performant flags by default), CPU core allocation, Java path/version,
-  and every `server.properties` value from one screen. Destructive actions live
-  in a separate **Dangerous** tab and require confirmation.
+- **Server editor** - change the server name, min/max RAM, custom launch flags,
+  CPU core allocation, Java path/version, and every `server.properties` value
+  from one screen. Slime manages RAM, CPU cores, `nogui`, Aikar's flags and
+  recovery flags automatically, so the flags box only shows your own additions.
+  Destructive actions live in a separate **Dangerous** tab: **Reset world** and
+  **Delete server** both require holding Enter for five seconds.
+- **Safer crash recovery** - servers that exit with an exception or a non-zero
+  status are reported as **crashed**. If the crash points to a damaged world
+  (`Overworld settings missing`, a corrupt `level.dat`, or a similar error),
+  Slime offers to reset the world the next time the server starts. Recovery
+  flags such as `--safeMode` apply to one launch only and are never saved.
 - **Server lifecycle** - create, start, stop, restart, delete and inspect
   servers. A foreground console streams logs and accepts commands via stdin.
-  Servers that exit with an exception or a non-zero status are reported as
-  **crashed**; a deliberate stop or kill stays **stopped**.
+  A deliberate stop or kill stays **stopped**, and the console shows Slime's
+  own actions (`[slime] Stopping server...`, `[slime] Server stopped.`).
 - **Environment checks** - Python, OS, disk space, available RAM, port
   conflicts, EULA status, server jar, `server.properties` consistency and Java
   availability.
@@ -154,18 +161,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.4.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.4.0-windows-x64.exe --version
-.\slime-1.4.0-windows-x64.exe
+Get-FileHash .\slime-1.5.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.5.0-windows-x64.exe --version
+.\slime-1.5.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.4.0-linux-x64.sha256
-chmod +x slime-1.4.0-linux-x64
-./slime-1.4.0-linux-x64 --version
-./slime-1.4.0-linux-x64
+sha256sum -c slime-1.5.0-linux-x64.sha256
+chmod +x slime-1.5.0-linux-x64
+./slime-1.5.0-linux-x64 --version
+./slime-1.5.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.
@@ -259,10 +266,11 @@ slime
 | `Esc` | Back |
 
 The server screen shows live console output, a command input, and Start / Stop /
-Kill / Restart / Edit / Delete buttons. **Edit** opens the server editor with
-General, `server.properties` and Dangerous tabs. Servers started from the TUI
-keep running while you navigate between screens, and are stopped gracefully
-when you quit Slime.
+Kill / Restart / Edit / Back buttons. **Edit** opens the server editor with
+General, `server.properties` and Dangerous tabs. **Delete** and **Reset world**
+live in **Dangerous** and require holding Enter for five seconds. Servers started
+from the TUI keep running while you navigate between screens, and are stopped
+gracefully when you quit Slime.
 
 ## Commands
 

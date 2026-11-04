@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from slime.tui.screens.server import _colorize_log_line
+from slime.tui.screens.server import _colorize_log_line, slime_message
 
 
 @pytest.mark.parametrize(
@@ -31,3 +31,21 @@ def test_info_line_keeps_info_color() -> None:
 
 def test_plain_line_is_not_colored() -> None:
     assert _colorize_log_line("a normal plugin message").style in (None, "")
+
+
+def test_slime_prefix_is_bold_bright_green() -> None:
+    text = _colorize_log_line(slime_message("Stopping server..."))
+    assert text.plain == "[slime] Stopping server..."
+    assert text.spans[0].start == 0
+    assert text.spans[0].end == len("[slime]")
+    assert text.spans[0].style == "bold bright_green"
+
+
+def test_done_word_is_bright_green() -> None:
+    text = _colorize_log_line("[12:00:00 INFO]: Done (1.234s)! For help, type help")
+    assert text.style == "white"
+    assert any(
+        text.plain[span.start : span.end].startswith("Done")
+        and span.style == "bold bright_green"
+        for span in text.spans
+    )

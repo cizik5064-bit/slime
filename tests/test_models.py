@@ -4,11 +4,13 @@ import pytest
 
 from slime.errors import ValidationError
 from slime.models import (
+    AIKAR_FLAGS,
     BuildInfo,
     DownloadInfo,
     JavaInstall,
     Project,
     Server,
+    parse_launch_flags,
     required_java_major,
     sort_versions,
     validate_java_major,
@@ -147,7 +149,8 @@ class TestServer:
         assert server.is_proxy is False
         assert server.kind == "server"
         assert server.created_at
-        assert server.extra_args
+        assert server.extra_args == []
+        assert server.world_reset_suggested is False
 
     def test_round_trip(self) -> None:
         server = self.make(
@@ -162,6 +165,26 @@ class TestServer:
         )
         restored = Server.from_dict(server.to_dict())
         assert restored == server
+
+    def test_managed_flags_are_not_stored_as_user_args(self) -> None:
+        server = self.make(
+            extra_args=[
+                *AIKAR_FLAGS,
+                "-Xms512M",
+                "-Xmx4096M",
+                "-XX:ActiveProcessorCount=2",
+                "-Dfile.encoding=UTF-8",
+                "nogui",
+                "--safeMode",
+                "-Dfoo=bar",
+            ]
+        )
+        assert server.extra_args == ["-Dfoo=bar"]
+
+    def test_world_reset_suggestion_round_trip(self) -> None:
+        server = self.make(world_reset_suggested=True)
+        restored = Server.from_dict(server.to_dict())
+        assert restored.world_reset_suggested is True
 
     def test_minimum_memory_cannot_exceed_maximum(self) -> None:
         with pytest.raises(ValidationError, match="Minimum memory"):
@@ -229,6 +252,27 @@ class TestServer:
     def test_empty_version_rejected(self) -> None:
         with pytest.raises(ValidationError):
             self.make(minecraft_version="  ")
+
+
+def test_parse_launch_flags_supports_newlines_and_continuations() -> None:
+    assert parse_launch_flags("-Dfoo=bar\n-Dbaz=qux") == ["-Dfoo=bar", "-Dbaz=qux"]
+    assert parse_launch_flags("-Dfoo=bar \\\n  -Dbaz=qux") == [
+        "-Dfoo=bar",
+        "-Dbaz=qux",
+    ]
+    assert parse_launch_flags("-Dfoo=bar \\\r\n  -Dbaz=qux") == [
+        "-Dfoo=bar",
+        "-Dbaz=qux",
+    ]
+
+
+def test_parse_launch_flags_ignores_blank_lines_and_comments() -> None:
+    assert parse_launch_flags("\n# comment\n-Dfoo=bar\n") == ["-Dfoo=bar"]
+
+
+def test_parse_launch_flags_rejects_unclosed_quotes() -> None:
+    with pytest.raises(ValidationError, match="Cannot parse launch flags"):
+        parse_launch_flags('-Dfoo="bar')
 
 
 class TestBuildInfo:

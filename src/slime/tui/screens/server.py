@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, ClassVar
 
 from rich.markup import escape
 from rich.text import Text
-from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -19,7 +18,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Static
 from ...errors import SlimeError
 from ...models import Server
 from ...process import ServerState
-from .confirm import ConfirmScreen
+from .confirm import ConfirmScreen, HoldConfirmScreen
 from .edit import EditServerScreen
 
 if TYPE_CHECKING:
@@ -64,20 +63,37 @@ _EXCEPTION_RE = re.compile(
     r"|\s*(?:[A-Z][\w$]*Exception|AssertionError|OutOfMemoryError)\b"
     r")"
 )
+_SLIME_PREFIX_RE = re.compile(r"^\[slime\]", re.IGNORECASE)
+_DONE_RE = re.compile(r"\bDone!?(?:\s*\([^)]*\)!?)?", re.IGNORECASE)
+
+
+def slime_message(message: str) -> str:
+    """Format a console line that comes from Slime itself."""
+    return f"[slime] {message}"
 
 
 def _colorize_log_line(line: str) -> Text:
-    """Color a whole server console line by its log level, found anywhere
-    in the bracketed prefix ("[10:37:03 ERROR]:", "[Server thread/WARN]:").
-    Stack trace and exception lines, which have no level prefix, are colored
-    red like ERROR. Falls back to plain text for everything else."""
-    match = _LOG_LEVEL_RE.search(line)
-    if match is not None:
-        color = _LOG_LEVEL_COLORS[match.group(1)]
-        return Text(line, style=color)
-    if _EXCEPTION_RE.match(line):
-        return Text(line, style="red")
-    return Text(line)
+    """Color a server console line by its log level and special markers.
+
+    Slime's own ``[slime]`` prefix is bold bright green. The ``Done`` line that
+    signals a successful server start gets the same highlight. Everything else
+    follows the normal log-level colors.
+    """
+    base_style: str | None = None
+    slime_prefix = _SLIME_PREFIX_RE.match(line)
+    if slime_prefix is None:
+        match = _LOG_LEVEL_RE.search(line)
+        if match is not None:
+            base_style = _LOG_LEVEL_COLORS[match.group(1)]
+        elif _EXCEPTION_RE.match(line):
+            base_style = "red"
+    text = Text(line, style=base_style) if base_style is not None else Text(line)
+    if slime_prefix is not None:
+        text.stylize("bold bright_green", slime_prefix.start(), slime_prefix.end())
+    done = _DONE_RE.search(line)
+    if done is not None:
+        text.stylize("bold bright_green", done.start(), done.end())
+    return text
 
 
 class ServerScreen(Screen):
@@ -102,9 +118,8 @@ class ServerScreen(Screen):
             with Horizontal(id="server-buttons"):
                 yield Button("Start", id="toggle", variant="success")
                 yield Button("Kill", id="kill", variant="error")
-                yield Button("Restart", id="restart")
+                yield Button("Restart", id="restart", variant="primary")
                 yield Button("Edit", id="edit")
-                yield Button("Delete", id="delete", variant="error")
                 yield Button("Back", id="back")
             yield RichLog(
                 id="console",
@@ -159,13 +174,8 @@ class ServerScreen(Screen):
             self.query_one("#console", RichLog).write(_colorize_log_line(line))
 
     def on_process_state(self, state: ServerState) -> None:
+        # The app already shows the crash notification; only refresh the UI here.
         self.update_status(state)
-        if state is ServerState.CRASHED:
-            self.slime.notify(
-                f"Server '{self.server.name}' crashed. Check the console output.",
-                severity="error",
-                timeout=8,
-            )
 
     def update_status(self, state: ServerState | None = None) -> None:
         process = self.slime.get_process(self.server.name)
@@ -220,13 +230,23 @@ class ServerScreen(Screen):
             await self.restart_server()
         elif button_id == "edit":
             self.open_editor()
-        elif button_id == "delete":
-            self.confirm_delete()
         elif button_id == "back":
             self.action_back()
 
-    async def start_server(self) -> None:
-        if self.server.recovery_args:
+    async def start_server(self, extra_args: list[str] | None = None) -> None:
+        if extra_args is None and self.server.world_reset_suggested:
+            self.slime.push_screen(
+                HoldConfirmScreen(
+                    f"The previous crash suggests that the world of "
+                    f"'{self.server.name}' is damaged.\n\n"
+                    "Resetting deletes the overworld, nether and end. "
+                    "This cannot be undone.",
+                    cancel_label="Keep world",
+                ),
+                self._on_world_reset_choice,
+            )
+            return
+        if extra_args is None and self.server.recovery_args:
             suggestion = list(self.server.recovery_args)
             flags = " ".join(suggestion)
             self.slime.push_screen(
@@ -241,7 +261,7 @@ class ServerScreen(Screen):
             )
             return
         try:
-            process = await self.slime.start_server(self.server)
+            process = await self.slime.start_server(self.server, extra_args=extra_args)
         except SlimeError as error:
             self.slime.notify_error(error)
             return
@@ -249,27 +269,64 @@ class ServerScreen(Screen):
         process.add_state_listener(self._state_listener)
         for line in process.lines:
             self.append_line(line)
-        self.append_line(f"[slime] Starting {self.server.name}…")
+        self.append_line(slime_message(f"Starting {self.server.name}..."))
         self.update_status(process.state)
 
-    def _on_recovery_choice(self, confirmed: bool | None, args: list[str]) -> None:
+    def _on_world_reset_choice(self, confirmed: bool | None) -> None:
+        self.server.world_reset_suggested = False
+        self._save_server()
         if confirmed:
-            self.server.extra_args = list(
-                dict.fromkeys([*self.server.extra_args, *args])
+            self.slime.run_worker(
+                self._reset_world_and_start(),
+                exclusive=True,
+                group="start",
+                exit_on_error=False,
             )
-        self.server.recovery_args = []
-        with contextlib.suppress(SlimeError, OSError):
-            self.slime.store.save(self.server)
+            return
         self.slime.run_worker(
             self.start_server(), exclusive=True, group="start", exit_on_error=False
         )
 
+    async def _reset_world_and_start(self) -> None:
+        try:
+            removed = await asyncio.to_thread(
+                self.slime.store.reset_world, self.server.name
+            )
+        except OSError as error:
+            self.slime.notify_error(error)
+            return
+        if removed:
+            self.append_line(
+                slime_message(f"World reset: removed {len(removed)} folder(s).")
+            )
+        else:
+            self.append_line(slime_message("No world folders found."))
+        await self.start_server()
+
+    def _on_recovery_choice(self, confirmed: bool | None, args: list[str]) -> None:
+        transient = [*self.server.extra_args, *args] if confirmed else None
+        # Recovery flags apply to this launch only; never persist them.
+        self.server.recovery_args = []
+        self._save_server()
+        self.slime.run_worker(
+            self.start_server(transient),
+            exclusive=True,
+            group="start",
+            exit_on_error=False,
+        )
+
+    def _save_server(self) -> None:
+        with contextlib.suppress(SlimeError, OSError):
+            self.slime.store.save(self.server)
+
     async def stop_server(self) -> None:
+        self.append_line(slime_message("Stopping server..."))
         try:
             await self.slime.stop_server(self.server.name)
         except SlimeError as error:
             self.slime.notify_error(error)
             return
+        self.append_line(slime_message("Server stopped."))
         self.update_status(ServerState.STOPPED)
 
     async def kill_server(self) -> None:
@@ -277,27 +334,15 @@ class ServerScreen(Screen):
         if process is None:
             self.update_status(ServerState.STOPPED)
             return
-        self.append_line(f"[slime] Force-killing {self.server.name}…")
+        self.append_line(slime_message(f"Killing {self.server.name}..."))
         await process.force_kill()
+        self.append_line(slime_message("Server stopped."))
         self.update_status(ServerState.STOPPED)
 
     async def restart_server(self) -> None:
+        self.append_line(slime_message("Restarting server..."))
         await self.stop_server()
         await self.start_server()
-
-    def confirm_delete(self) -> None:
-        self.slime.push_screen(
-            ConfirmScreen(
-                f"Delete '{self.server.name}' and all of its world files? "
-                "This cannot be undone.",
-                confirm_label="Delete server",
-            ),
-            self._on_delete_confirmed,
-        )
-
-    def _on_delete_confirmed(self, confirmed: bool | None) -> None:
-        if confirmed:
-            self._delete_server()
 
     def open_editor(self) -> None:
         self.slime.push_screen(
@@ -318,21 +363,6 @@ class ServerScreen(Screen):
                 "Settings saved. Restart the server to apply runtime changes.",
                 timeout=4,
             )
-
-    @work(exclusive=True, group="delete")
-    async def _delete_server(self) -> None:
-        process = self.slime.get_process(self.server.name)
-        try:
-            if process is not None and process.is_running:
-                await process.stop()
-            await asyncio.to_thread(self.slime.store.delete, self.server.name)
-        except (SlimeError, OSError) as error:
-            self.slime.notify_error(error)
-            return
-        self.slime.processes.pop(self.server.name, None)
-        self.slime.refresh_dashboard()
-        self.slime.notify(f"Server '{self.server.name}' deleted.", timeout=4)
-        self.slime.pop_screen()
 
     # ------------------------------------------------------------------ input
     async def on_input_submitted(self, event: Input.Submitted) -> None:

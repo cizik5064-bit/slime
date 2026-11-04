@@ -70,6 +70,21 @@ Footer {
     margin-right: 1;
 }
 
+#restart {
+    background: #0284c7;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#restart:hover {
+    background: #0ea5e9;
+}
+
+#restart:focus {
+    background: #0369a1;
+    color: #ffffff;
+}
+
 #console {
     height: 1fr;
     border: round $primary;
@@ -196,7 +211,8 @@ Footer {
 /* ----------------------------------------------------------------- modals */
 
 CreateServerScreen,
-ConfirmScreen {
+ConfirmScreen,
+HoldConfirmScreen {
     align: center middle;
     background: $background 60%;
 }
@@ -285,5 +301,35 @@ CreateServerScreen Select {
 }
 
 #confirm-buttons Button {
+    margin-right: 1;
+}
+
+#dangerous-scroll Button {
+    margin-bottom: 1;
+}
+
+#hold-confirm-dialog {
+    width: 72;
+    height: auto;
+    padding: 1 2;
+    border: thick $error;
+    background: $panel;
+}
+
+#hold-confirm-message {
+    margin-bottom: 1;
+}
+
+#hold-confirm-status {
+    min-height: 2;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#hold-confirm-buttons {
+    height: auto;
+}
+
+#hold-confirm-buttons Button {
     margin-right: 1;
 }

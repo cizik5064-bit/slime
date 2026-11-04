@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from textual.widgets import Input, TextArea
 
 from slime.config import Config
-from slime.models import AIKAR_FLAGS, Server
+from slime.models import Server
 from slime.properties import ensure_server_properties
 from slime.tui.app import SlimeApp
+from slime.tui.screens.confirm import HoldConfirmScreen
 from slime.tui.screens.edit import EditServerScreen
 
 
@@ -67,7 +69,7 @@ async def test_edit_screen_saves_general_settings(tmp_path: Path) -> None:
     assert (app.store.path("creative") / "server.properties").is_file()
 
 
-async def test_edit_screen_uses_aikar_flags_by_default(tmp_path: Path) -> None:
+async def test_internal_aikar_flags_are_hidden_from_the_editor(tmp_path: Path) -> None:
     config = Config(tmp_path / "home")
     app = SlimeApp(config)
     server = make_server()
@@ -81,10 +83,72 @@ async def test_edit_screen_uses_aikar_flags_by_default(tmp_path: Path) -> None:
         app.push_screen(EditServerScreen(app, server))
         await pilot.pause()
         flags = app.screen.query_one("#edit-flags", TextArea).text.split()
-        assert flags == list(AIKAR_FLAGS)
+        assert flags == []
 
 
-async def test_edit_screen_deletes_after_confirmation(tmp_path: Path) -> None:
+async def test_edit_screen_parses_multiline_and_continued_flags(
+    tmp_path: Path,
+) -> None:
+    config = Config(tmp_path / "home")
+    app = SlimeApp(config)
+    server = make_server()
+    app.store.save(server)
+    ensure_server_properties(
+        app.store.path(server.name) / "server.properties",
+        port=server.port,
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(EditServerScreen(app, server))
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, EditServerScreen)
+        screen.query_one("#edit-flags", TextArea).load_text(
+            "-Dfoo=bar \\\n  -Dbaz=qux\n-Dthird=yes"
+        )
+        await pilot.click("#edit-save")
+        await pilot.pause()
+
+    saved = app.store.get("survival")
+    assert saved.extra_args == ["-Dfoo=bar", "-Dbaz=qux", "-Dthird=yes"]
+
+
+async def test_edit_screen_resets_world_after_hold_confirmation(
+    tmp_path: Path,
+) -> None:
+    config = Config(tmp_path / "home")
+    app = SlimeApp(config)
+    server = make_server()
+    server.world_reset_suggested = True
+    app.store.save(server)
+    directory = app.store.path(server.name)
+    for name in ("world", "world_nether", "world_the_end", "plugins"):
+        (directory / name).mkdir()
+
+    async with app.run_test() as pilot:
+        app.push_screen(EditServerScreen(app, server))
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, EditServerScreen)
+        screen.confirm_reset_world()
+        await pilot.pause()
+        assert isinstance(app.screen, HoldConfirmScreen)
+        app.screen.dismiss(True)
+        await pilot.pause()
+
+        for _ in range(50):
+            if not (directory / "world").exists():
+                break
+            await asyncio.sleep(0.02)
+
+    assert not (directory / "world").exists()
+    assert not (directory / "world_nether").exists()
+    assert not (directory / "world_the_end").exists()
+    assert (directory / "plugins").is_dir()
+    assert app.store.get("survival").world_reset_suggested is False
+
+
+async def test_edit_screen_deletes_after_hold_confirmation(tmp_path: Path) -> None:
     config = Config(tmp_path / "home")
     app = SlimeApp(config)
     server = make_server()
@@ -98,7 +162,12 @@ async def test_edit_screen_deletes_after_confirmation(tmp_path: Path) -> None:
         assert isinstance(screen, EditServerScreen)
         screen.confirm_delete()
         await pilot.pause()
-        await pilot.click("#confirm")
+        assert isinstance(app.screen, HoldConfirmScreen)
+        app.screen.dismiss(True)
         await pilot.pause()
 
+        for _ in range(50):
+            if not app.store.exists("survival"):
+                break
+            await asyncio.sleep(0.02)
         assert not app.store.exists("survival")

@@ -655,6 +655,7 @@ def server_run(
     Press Ctrl+C or type ``stop`` to shut it down gracefully.
     """
     app_context = _ctx(context)
+    recovery_args: list[str] = []
     with _errors():
         server = app_context.store.get(name)
         running, pid = app_context.store.is_running(name)
@@ -695,7 +696,13 @@ def server_run(
                 f"Server jar is missing: {jar}",
                 hint="Recreate the server or download the jar manually.",
             )
-        _offer_recovery_args(server, app_context.store)
+        if server.world_reset_suggested:
+            console.print(
+                "[yellow]Warning:[/yellow] the previous crash suggests a damaged "
+                "world. Open the TUI and use Edit -> Dangerous -> Reset world if "
+                "the server keeps failing."
+            )
+        recovery_args = _offer_recovery_args(server, app_context.store)
         server_dir = app_context.store.path(name)
 
     code = asyncio.run(
@@ -705,33 +712,34 @@ def server_run(
             java_install,
             server_dir=server_dir,
             no_console=no_console,
+            extra_args=(
+                [*server.extra_args, *recovery_args] if recovery_args else None
+            ),
         )
     )
     if code != 0:
         raise typer.Exit(code)
 
 
-def _offer_recovery_args(server: Server, store: ServerStore) -> None:
-    """Offer to start with arguments suggested by the previous server error."""
+def _offer_recovery_args(server: Server, store: ServerStore) -> list[str]:
+    """Offer recovery flags and return them for this launch only."""
     if not server.recovery_args:
-        return
+        return []
     flags = " ".join(server.recovery_args)
     if not sys.stdin.isatty():
         console.print(
             f"[yellow]Hint:[/yellow] the previous run suggested {flags}. "
             "Start Slime interactively to accept it."
         )
-        return
+        return []
     accept = Confirm.ask(
         f"The previous run suggested starting with {flags}. Start with it?",
         default=True,
     )
-    if accept:
-        server.extra_args = list(
-            dict.fromkeys([*server.extra_args, *server.recovery_args])
-        )
+    transient = list(server.recovery_args) if accept else []
     server.recovery_args = []
     store.save(server)
+    return transient
 
 
 def _remember_recovery(store: ServerStore, server: Server, args: list[str]) -> None:
@@ -751,6 +759,7 @@ async def _run_foreground(
     *,
     server_dir: Path,
     no_console: bool,
+    extra_args: list[str] | None = None,
 ) -> int:
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
@@ -766,6 +775,7 @@ async def _run_foreground(
         server_dir,
         java_install.path,
         log_dir=app_context.config.paths.logs,
+        extra_args=extra_args,
         java_home=java_install.home,
         on_recovery=lambda args: _remember_recovery(app_context.store, server, args),
     )

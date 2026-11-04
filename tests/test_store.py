@@ -68,6 +68,40 @@ def test_delete_keep_files(store: ServerStore) -> None:
     assert world.is_dir()
 
 
+def test_reset_world_removes_world_folders_only(store: ServerStore) -> None:
+    server = make_server()
+    store.save(server)
+    directory = store.path("survival")
+    for name in ("world", "world_nether", "world_the_end", "plugins"):
+        (directory / name).mkdir()
+
+    removed = store.reset_world("survival")
+
+    assert {path.name for path in removed} == {
+        "world",
+        "world_nether",
+        "world_the_end",
+    }
+    assert not (directory / "world").exists()
+    assert (directory / "plugins").is_dir()
+    assert store.exists("survival")
+
+
+def test_reset_world_uses_configured_level_name(store: ServerStore) -> None:
+    server = make_server()
+    store.save(server)
+    directory = store.path("survival")
+    (directory / "server.properties").write_text(
+        "level-name=myworld\n", encoding="utf-8"
+    )
+    (directory / "myworld").mkdir()
+    (directory / "myworld_nether").mkdir()
+
+    removed = store.reset_world("survival")
+
+    assert {path.name for path in removed} == {"myworld", "myworld_nether"}
+
+
 def test_list_skips_broken_records(store: ServerStore) -> None:
     store.save(make_server("good"))
     broken = store.path("broken")

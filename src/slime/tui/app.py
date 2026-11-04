@@ -159,6 +159,13 @@ class SlimeApp(App[None]):
     def _on_process_state(self, name: str, state: ServerState) -> None:
         self.refresh_dashboard()
         if state is ServerState.CRASHED:
+            process = self.processes.get(name)
+            if process is not None and process.world_reset_suggested:
+                with contextlib.suppress(SlimeError, OSError):
+                    server = self.store.get(name)
+                    if not server.world_reset_suggested:
+                        server.world_reset_suggested = True
+                        self.store.save(server)
             self.notify(
                 f"Server '{name}' exited unexpectedly. Open its console for details.",
                 severity="error",
@@ -166,6 +173,10 @@ class SlimeApp(App[None]):
             )
         screen = self.screen
         if isinstance(screen, ServerScreen) and screen.server.name == name:
+            if state is ServerState.CRASHED:
+                process = self.processes.get(name)
+                if process is not None and process.world_reset_suggested:
+                    screen.server.world_reset_suggested = True
             screen.on_process_state(state)
 
     # ------------------------------------------------------------------ errors

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -29,6 +28,7 @@ from textual.widgets import (
 from ...errors import SlimeError, ValidationError
 from ...models import (
     Server,
+    parse_launch_flags,
     validate_cpu_cores,
     validate_java_major,
     validate_memory,
@@ -40,7 +40,7 @@ from ...properties import (
     read_properties,
     write_properties,
 )
-from .confirm import ConfirmScreen
+from .confirm import HoldConfirmScreen
 
 if TYPE_CHECKING:
     from ..app import SlimeApp
@@ -86,7 +86,7 @@ class EditServerScreen(Screen[Server | str | None]):
             if self.server.min_memory_mb is not None
             else self.server.memory_mb
         )
-        flags = " ".join(self.server.extra_args)
+        flags = "\n".join(self.server.extra_args)
         cpu = "" if self.server.cpu_cores is None else str(self.server.cpu_cores)
         java_path = self.server.java_path or ""
 
@@ -115,10 +115,13 @@ class EditServerScreen(Screen[Server | str | None]):
                                 )
 
                         yield Label("Launch flags")
+                        yield Static(DANGER_HINT, classes="danger-hint")
                         yield TextArea(flags, id="edit-flags")
                         yield Static(
-                            "Default: Aikar's performant flags. One flag per line "
-                            "or separated by spaces. Takes effect on the next start.",
+                            "One flag per line, separated by spaces, or joined with "
+                            "a trailing backslash. RAM, CPU cores, nogui, recovery "
+                            "flags and Aikar's defaults are added automatically and "
+                            "are not shown here. Takes effect on the next start.",
                             classes="hint",
                         )
 
@@ -174,6 +177,16 @@ class EditServerScreen(Screen[Server | str | None]):
                 ):
                         yield Static("Danger zone", classes="dialog-title")
                         yield Static(
+                            "Reset world deletes the overworld, nether and end so "
+                            "the server generates a fresh world on the next start.",
+                            classes="dialog-subtitle",
+                        )
+                        yield Button(
+                            "Reset world",
+                            id="edit-reset-world",
+                            variant="warning",
+                        )
+                        yield Static(
                             "Deleting the server removes its jar, configuration, "
                             "world and all backups stored in the server directory. "
                             "This cannot be undone.",
@@ -203,6 +216,8 @@ class EditServerScreen(Screen[Server | str | None]):
             self.save()
         elif button_id == "edit-cancel":
             self.dismiss(None)
+        elif button_id == "edit-reset-world":
+            self.confirm_reset_world()
         elif button_id == "edit-delete":
             self.confirm_delete()
 
@@ -249,10 +264,7 @@ class EditServerScreen(Screen[Server | str | None]):
                 raise ValidationError("Choose a Java version.")
             java_major = validate_java_major(int(str(java_value)))
 
-            try:
-                flags = shlex.split(self.query_one("#edit-flags", TextArea).text)
-            except ValueError as exc:
-                raise ValidationError(f"Cannot parse launch flags: {exc}") from exc
+            flags = parse_launch_flags(self.query_one("#edit-flags", TextArea).text)
 
             properties = self._read_property_inputs()
             port = self.server.port
@@ -318,10 +330,10 @@ class EditServerScreen(Screen[Server | str | None]):
     # ------------------------------------------------------------------ delete
     def confirm_delete(self) -> None:
         self.slime.push_screen(
-            ConfirmScreen(
+            HoldConfirmScreen(
                 f"Delete '{self.server.name}' and all of its world files? "
                 "This cannot be undone.",
-                confirm_label="Delete server",
+                cancel_label="Keep server",
             ),
             self._on_delete_confirmed,
         )
@@ -348,6 +360,57 @@ class EditServerScreen(Screen[Server | str | None]):
         self.slime.refresh_dashboard()
         self.slime.notify(f"Server '{self.server.name}' deleted.", timeout=4)
         self.dismiss("deleted")
+
+    # ------------------------------------------------------------------- world
+    def confirm_reset_world(self) -> None:
+        self.slime.push_screen(
+            HoldConfirmScreen(
+                f"Reset the world of '{self.server.name}'?\n\n"
+                "The overworld, nether and end will be deleted and generated "
+                "again on the next start. This cannot be undone.",
+                cancel_label="Keep world",
+            ),
+            self._on_reset_world_confirmed,
+        )
+
+    def _on_reset_world_confirmed(self, confirmed: bool | None) -> None:
+        if confirmed:
+            self._reset_world()
+
+    @work(exclusive=True, group="edit-reset-world")
+    async def _reset_world(self) -> None:
+        process = self.slime.get_process(self.server.name)
+        if process is not None and process.is_running:
+            self.slime.notify(
+                "Stop the server before resetting its world.",
+                severity="error",
+                timeout=6,
+            )
+            return
+        self._busy = True
+        self._set_controls_disabled(True)
+        try:
+            removed = await asyncio.to_thread(
+                self.slime.store.reset_world, self.server.name
+            )
+        except OSError as error:
+            self._busy = False
+            self._set_controls_disabled(False)
+            self._notify_error(error)
+            return
+        self.server.world_reset_suggested = False
+        try:
+            self.slime.store.save(self.server)
+        except (SlimeError, OSError) as error:
+            self._notify_error(error)
+        self._busy = False
+        self._set_controls_disabled(False)
+        if removed:
+            self.slime.notify(
+                f"World reset: removed {len(removed)} folder(s).", timeout=5
+            )
+        else:
+            self.slime.notify("No world folders were found.", timeout=5)
 
     def _set_controls_disabled(self, disabled: bool) -> None:
         for widget in self.query("Input, Select, TextArea, Button"):

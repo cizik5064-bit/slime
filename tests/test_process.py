@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from slime.errors import ServerError
-from slime.models import Server
+from slime.models import AIKAR_FLAGS, Server
 from slime.process import ServerProcess, ServerState, suggested_arguments
 
 
@@ -31,6 +31,7 @@ def make_process(
     server: Server | None = None,
     script: str | None = None,
     on_recovery=None,
+    extra_args: list[str] | None = None,
 ) -> ServerProcess:
     server = server or make_server()
     command_override = None
@@ -43,6 +44,7 @@ def make_process(
         tmp_path / "server",
         tmp_path / "java",
         log_dir=tmp_path / "logs",
+        extra_args=extra_args,
         command_override=command_override,
         on_recovery=on_recovery,
     )
@@ -80,6 +82,8 @@ def test_build_command_for_server() -> None:
     assert "nogui" in command
     assert "--nogui" not in command
     assert command[-1] == "-Dfoo=bar"
+    for flag in AIKAR_FLAGS:
+        assert command.count(flag) == 1
     assert process.pid is None
     assert process.state is ServerState.STOPPED
     assert process.is_running is False
@@ -274,6 +278,46 @@ def test_suggested_arguments_from_error_line() -> None:
 def test_suggested_arguments_ignores_unrelated_flags() -> None:
     assert suggested_arguments("[INFO]: starting with --nogui") == []
     assert suggested_arguments("[WARN]: use --add-plugin for more plugins") == []
+
+
+async def test_world_error_marks_world_reset_suggestion(tmp_path: Path) -> None:
+    script = (
+        "import sys\n"
+        "print('java.util.concurrent.ExecutionException: "
+        "java.lang.IllegalStateException: Overworld settings missing', flush=True)\n"
+        "sys.exit(1)\n"
+    )
+    process = make_process(tmp_path, script=script)
+    await process.start()
+    await process.wait()
+    await wait_for_state(process, ServerState.CRASHED)
+    assert process.world_reset_suggested is True
+
+
+async def test_recovery_flag_is_not_reported_again_when_already_used(
+    tmp_path: Path,
+) -> None:
+    script = (
+        "import sys\n"
+        "print(\"[12:36:55 WARN]: Failed to load datapacks, reset to vanilla "
+        "with --safeMode\", flush=True)\n"
+        "print('java.lang.IllegalStateException: Overworld settings missing', flush=True)\n"
+        "sys.exit(1)\n"
+    )
+    received: list[list[str]] = []
+    process = make_process(
+        tmp_path,
+        script=script,
+        on_recovery=received.append,
+        extra_args=["--safeMode"],
+    )
+
+    await process.start()
+    await process.wait()
+    await wait_for_state(process, ServerState.CRASHED)
+
+    assert received == []
+    assert process.world_reset_suggested is True
 
 
 async def test_process_reports_recovery_arguments(tmp_path: Path) -> None:

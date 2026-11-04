@@ -7,6 +7,7 @@ unit-tested and imported very cheaply.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -86,6 +87,50 @@ AIKAR_FLAGS: tuple[str, ...] = (
     "-Dusing.aikars.flags=https://mcflags.emc.gs",
     "-Daikars.new.flags=true",
 )
+
+_AIKAR_FLAG_SET = frozenset(AIKAR_FLAGS)
+#: Arguments Slime adds automatically; they must never be stored in extra_args.
+_MANAGED_FLAGS = frozenset(
+    {
+        "nogui",
+        "--nogui",
+        "--safemode",
+        "--forceupgrade",
+        "--erasecache",
+        "--recreateregionfiles",
+    }
+)
+_MANAGED_PREFIXES = (
+    "-Xms",
+    "-Xmx",
+    "-XX:ActiveProcessorCount=",
+    "-Dfile.encoding=",
+)
+
+
+def _is_managed_argument(argument: str) -> bool:
+    if argument in _AIKAR_FLAG_SET:
+        return True
+    if argument.lower() in _MANAGED_FLAGS:
+        return True
+    return argument.startswith(_MANAGED_PREFIXES)
+
+
+def parse_launch_flags(text: str) -> list[str]:
+    """Parse user-supplied JVM/server flags.
+
+    Flags may be separated by spaces or newlines. A trailing backslash can be
+    used to continue a long command over several lines.
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"\\[ \t]*\n", " ", normalized)
+    lines = [
+        line for line in normalized.splitlines() if not line.lstrip().startswith("#")
+    ]
+    try:
+        return shlex.split("\n".join(lines))
+    except ValueError as exc:
+        raise ValidationError(f"Cannot parse launch flags: {exc}") from exc
 
 # ---------------------------------------------------------------------------
 # Validation helpers
@@ -277,8 +322,9 @@ class Server:
     java_path: str | None = None
     eula_accepted: bool = False
     jar_file: str = "server.jar"
-    extra_args: list[str] = field(default_factory=lambda: list(AIKAR_FLAGS))
+    extra_args: list[str] = field(default_factory=list)
     recovery_args: list[str] = field(default_factory=list)
+    world_reset_suggested: bool = False
     created_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )
@@ -308,10 +354,13 @@ class Server:
             raise ValidationError("Jar file must be a plain file name.")
         if not isinstance(self.extra_args, list):
             raise ValidationError("extra_args must be a list of strings.")
-        self.extra_args = [str(arg) for arg in self.extra_args]
+        self.extra_args = [
+            str(arg) for arg in self.extra_args if not _is_managed_argument(str(arg))
+        ]
         if not isinstance(self.recovery_args, list):
             raise ValidationError("recovery_args must be a list of strings.")
         self.recovery_args = [str(arg) for arg in self.recovery_args]
+        self.world_reset_suggested = bool(self.world_reset_suggested)
 
     @property
     def is_proxy(self) -> bool:
@@ -338,6 +387,7 @@ class Server:
             "jar_file": self.jar_file,
             "extra_args": list(self.extra_args),
             "recovery_args": list(self.recovery_args),
+            "world_reset_suggested": self.world_reset_suggested,
             "created_at": self.created_at,
         }
 
@@ -426,6 +476,7 @@ class Server:
             jar_file=str(data.get("jar_file", "server.jar")),
             extra_args=[str(arg) for arg in extra_args],
             recovery_args=[str(arg) for arg in recovery_args],
+            world_reset_suggested=bool(data.get("world_reset_suggested", False)),
             created_at=str(created_at),
             schema=integer("schema", 1),
         )

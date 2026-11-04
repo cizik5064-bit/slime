@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-04
+
+### Added
+
+- Destructive actions now require holding **Enter for 5 seconds**: server
+  deletion, world reset and the world-reset suggestion after a crash. A progress
+  bar shows how long is left, and releasing Enter resets the countdown.
+- **Reset world** in **Edit → Dangerous**. It deletes the overworld, nether and
+  end (using the configured `level-name`) so the server generates a fresh world
+  on the next start.
+- When a crash looks like a damaged or unreadable world — including
+  `Overworld settings missing`, even after a `--safeMode` start — Slime offers
+  to reset the world the next time the server starts. The CLI prints a warning
+  and points to **Edit → Dangerous**.
+- The console now announces lifecycle actions from Slime: `[slime] Stopping
+  server...`, `[slime] Server stopped.`, and equivalent messages for Kill and
+  Restart.
+- `Done!` / `Done (...)!` is highlighted in bright green when the server
+  finishes starting.
+
+### Changed
+
+- Launch flags in the server editor now contain only user-defined flags. RAM,
+  CPU cores, `nogui`, recovery flags and Aikar's flags are added automatically
+  to the real launch command and are hidden from the editor.
+- Flags can be entered one per line, separated by spaces, or joined with a
+  trailing backslash for line continuations.
+- Recovery flags such as `--safeMode` apply to a single launch and are never
+  persisted in the server configuration.
+- The `[slime]` console prefix is bold bright green, matching Slime's messages.
+- **Restart** is styled blue-cyan with bold white text.
+
+### Fixed
+
+- A crashed server no longer produces two notifications.
+- **Delete** is only available in **Edit → Dangerous**; it was removed from the
+  server screen.
+
 ## [1.4.0] - 2026-11-04
 
 ### Added
@@ -196,7 +234,8 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.5.0
 [1.4.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.4.0
 [1.3.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.3.0
 [1.2.1]: https://github.com/cizik5064-bit/slime/releases/tag/v1.2.1

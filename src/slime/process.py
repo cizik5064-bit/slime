@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .errors import ServerError
-from .models import Project, Server
+from .models import AIKAR_FLAGS, Project, Server
 
 _READY_RE = re.compile(r"(Done \(|Listening on /|Done in |Done \()", re.IGNORECASE)
 _LINE_LIMIT = 3000
@@ -40,6 +40,16 @@ _EXCEPTION_LINE_RE = re.compile(
     r"|^\s*Caused by:"
     r"|^\s*Suppressed:"
     r"|^\s*at\s+[\w$./]+(?:\(|\.)"
+)
+_WORLD_ERROR_RE = re.compile(
+    r"overworld settings missing"
+    r"|world settings missing"
+    r"|failed to load (?:the )?world"
+    r"|(?:corrupt|damaged|incompatible).{0,40}\bworld\b"
+    r"|\bworld\b.{0,40}(?:corrupt|damaged|incompatible)"
+    r"|level\.dat.{0,40}(?:corrupt|missing|invalid)"
+    r"|failed to read.{0,40}level",
+    re.IGNORECASE,
 )
 
 
@@ -118,6 +128,9 @@ class ServerProcess:
         self._log_handle: TextIO | None = None
         self._started_at: datetime | None = None
         self._saw_exception = False
+        self._saw_world_error = False
+        self._safe_mode_used = False
+        self._world_reset_suggested = False
 
     # --------------------------------------------------------------- listeners
     def add_line_listener(self, listener: LineListener) -> None:
@@ -169,6 +182,11 @@ class ServerProcess:
     def lines(self) -> list[str]:
         return list(self._lines)
 
+    @property
+    def world_reset_suggested(self) -> bool:
+        """Whether the last crash looked like a corrupt or unreadable world."""
+        return self._world_reset_suggested
+
     def uptime(self) -> float:
         if self._started_at is None:
             return 0.0
@@ -187,6 +205,7 @@ class ServerProcess:
         ]
         if self.server.cpu_cores is not None:
             command.append(f"-XX:ActiveProcessorCount={self.server.cpu_cores}")
+        command.extend(AIKAR_FLAGS)
         command.extend(["-jar", self.server.jar_file])
         if not self.server.is_proxy:
             command.append("nogui")
@@ -228,6 +247,11 @@ class ServerProcess:
         self._set_state(ServerState.STARTING)
         self._exit_code = None
         self._saw_exception = False
+        self._saw_world_error = False
+        self._world_reset_suggested = False
+        self._safe_mode_used = any(
+            argument.lower() == "--safemode" for argument in self.build_command()
+        )
         self._started_at = datetime.now(UTC)
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -295,10 +319,14 @@ class ServerProcess:
                     self._set_state(ServerState.RUNNING)
                 if _EXCEPTION_LINE_RE.search(line):
                     self._saw_exception = True
+                if _WORLD_ERROR_RE.search(line):
+                    self._saw_world_error = True
                 new_recovery_args = [
                     argument
                     for argument in suggested_arguments(line)
                     if argument not in self.recovery_args
+                    and argument.lower()
+                    not in {existing.lower() for existing in self.extra_args}
                 ]
                 if new_recovery_args:
                     self.recovery_args.extend(new_recovery_args)
@@ -328,6 +356,10 @@ class ServerProcess:
                 user_stopped = self._state is ServerState.STOPPING
                 crashed = not user_stopped and (
                     self._exit_code != 0 or self._saw_exception
+                )
+                self._world_reset_suggested = crashed and (
+                    self._saw_world_error
+                    or (self._safe_mode_used and self._saw_exception)
                 )
                 self._set_state(
                     ServerState.CRASHED if crashed else ServerState.STOPPED

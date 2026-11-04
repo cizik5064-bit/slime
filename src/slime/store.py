@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import contextlib
 import json
 import shutil
@@ -13,6 +14,7 @@ import psutil
 from .config import Config
 from .errors import ServerError, ValidationError
 from .models import Server, validate_server_name
+from .properties import read_properties
 
 METADATA_FILE = "slime.json"
 PID_FILE = "slime.pid"
@@ -147,6 +149,43 @@ class ServerStore:
             self.pid_path(server.name).unlink(missing_ok=True)
             return
         shutil.rmtree(directory)
+
+    # ----------------------------------------------------------------- world
+    def world_directories(self, name: str) -> builtins.list[Path]:
+        """Return existing world folders for a server, including nether/end."""
+        directory = self.path(name)
+        level_name = "world"
+        properties_path = directory / "server.properties"
+        if properties_path.is_file():
+            with contextlib.suppress(OSError, ValueError):
+                level_name = (
+                    read_properties(properties_path).get("level-name", "world").strip()
+                    or "world"
+                )
+        if Path(level_name).name != level_name or level_name in {".", ".."}:
+            level_name = "world"
+        candidates = [
+            level_name,
+            f"{level_name}_nether",
+            f"{level_name}_the_end",
+            "world",
+            "world_nether",
+            "world_the_end",
+        ]
+        seen: builtins.list[Path] = []
+        for candidate in dict.fromkeys(candidates):
+            path = directory / candidate
+            if path.is_dir() and path not in seen:
+                seen.append(path)
+        return seen
+
+    def reset_world(self, name: str) -> builtins.list[Path]:
+        """Delete all world folders for a server and return the removed paths."""
+        removed: builtins.list[Path] = []
+        for path in self.world_directories(name):
+            shutil.rmtree(path)
+            removed.append(path)
+        return removed
 
     # ------------------------------------------------------------------- pid
     def read_pid(self, name: str) -> int | None:

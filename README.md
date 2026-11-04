@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://codecov.io/gh/cizik5064-bit/slime"><img src="https://codecov.io/gh/cizik5064-bit/slime/branch/main/graph/badge.svg" alt="codecov"></a>
+  <a href="https://github.com/cizik5064-bit/slime/actions/workflows/ci.yml"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cizik5064-bit/slime/badges/coverage.json" alt="Coverage"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
   <a href="https://mypy-lang.org/"><img src="https://www.mypy-lang.org/static/mypy_badge.svg" alt="Checked with mypy"></a>
 </p>
@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.3.0.** Core features are implemented and
+> **Status: 1.4.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -81,6 +81,10 @@ Or just run `slime` and use the TUI.
   availability.
 - **Beginner-friendly defaults** - sensible `server.properties`, MOTD, port,
   memory and Java version detection; clear error messages with actionable hints.
+- **Windows Terminal on Windows** - when started from `cmd.exe` or an older
+  PowerShell window, the TUI reopens itself in Windows Terminal for correct
+  Unicode rendering. If Windows Terminal is missing, Slime tries to install it
+  with `winget`. Set `SLIME_NO_WINDOWS_TERMINAL=1` to opt out.
 - **Cross-platform** - Windows 10+ and Linux (macOS works but is not a primary
   target). Windows 7/8/8.1 will require a separate legacy build; see
   [Platform support](#platform-support).
@@ -150,18 +154,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.3.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.3.0-windows-x64.exe --version
-.\slime-1.3.0-windows-x64.exe
+Get-FileHash .\slime-1.4.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.4.0-windows-x64.exe --version
+.\slime-1.4.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.3.0-linux-x64.sha256
-chmod +x slime-1.3.0-linux-x64
-./slime-1.3.0-linux-x64 --version
-./slime-1.3.0-linux-x64
+sha256sum -c slime-1.4.0-linux-x64.sha256
+chmod +x slime-1.4.0-linux-x64
+./slime-1.4.0-linux-x64 --version
+./slime-1.4.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.
@@ -395,6 +399,22 @@ Windows 7 and 8/8.1 support cannot be added to this codebase: Python 3.9+ and
 modern Textual do not run there. A future `0.x-legacy` build may target Python
 3.8 with pinned dependencies. Until then, Slime prints a clear compatibility
 error on unsupported Windows versions.
+
+### Windows Terminal
+
+The classic Windows console host can garble the box-drawing and progress
+characters used by the TUI. When Slime starts interactively from such a console,
+it opens a new **Windows Terminal** tab and exits the original process. If
+`wt.exe` is not installed, Slime runs:
+
+```powershell
+winget install --id Microsoft.WindowsTerminal --exact --silent `
+  --accept-source-agreements --accept-package-agreements
+```
+
+The relaunch is skipped when Slime already runs inside Windows Terminal, when
+stdin/stdout are not interactive, or when `SLIME_NO_WINDOWS_TERMINAL` is set to
+any non-empty value. It applies only to the TUI, not to scriptable CLI commands.
 
 ## Development
 

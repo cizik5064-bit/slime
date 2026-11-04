@@ -202,6 +202,10 @@ class SlimeApp(App[None]):
 
 def run_tui(config: Config) -> None:
     """Launch the TUI (blocking)."""
+    from ..windows_terminal import relaunch_in_windows_terminal
+
+    if relaunch_in_windows_terminal():
+        return
     SlimeApp(config).run()
 
 

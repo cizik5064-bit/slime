@@ -22,6 +22,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         python: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     steps:
       - name: Check out repository
@@ -48,16 +50,59 @@ jobs:
       - name: Run tests
         run: pytest --cov=slime --cov-report=xml
 
-      - name: Upload coverage to Codecov
+      - name: Upload coverage report
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: error
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          token: ${{ env.CODECOV_TOKEN }}
+          fail_ci_if_error: true
 
       - name: Check installed CLI entry point
         run: slime --version
+
+  coverage-badge:
+    name: Update coverage badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: .
+
+      - name: Render badge JSON
+        run: python scripts/coverage_badge.py coverage.xml badge/coverage.json
+
+      - name: Publish badge branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd badge
+          git init -b badges
+          git add coverage.json
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "chore: update coverage badge"
+          git push --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            badges
 
   build:
     name: Build distribution

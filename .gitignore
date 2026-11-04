@@ -24,6 +24,7 @@ wheelhouse/
 .coverage
 .coverage.*
 coverage.xml
+/badge/
 htmlcov/
 .tox/
 .nox/

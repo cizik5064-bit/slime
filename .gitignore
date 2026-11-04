@@ -37,6 +37,8 @@ slime-home/
 *.log
 tmp/
 .cache/
+# Local full-repository backup archives
+/Slime.tar
 
 # IDE and editor files
 .idea/

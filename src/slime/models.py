@@ -62,6 +62,31 @@ class Project(StrEnum):
 
 PROJECTS: tuple[Project, ...] = tuple(Project)
 
+#: Aikar's "performant" JVM flags, used as the default for new servers.
+#: See https://mcflags.emc.gs/ for the reasoning behind every value.
+AIKAR_FLAGS: tuple[str, ...] = (
+    "-XX:+UseG1GC",
+    "-XX:+ParallelRefProcEnabled",
+    "-XX:MaxGCPauseMillis=200",
+    "-XX:+UnlockExperimentalVMOptions",
+    "-XX:+DisableExplicitGC",
+    "-XX:+AlwaysPreTouch",
+    "-XX:G1NewSizePercent=30",
+    "-XX:G1MaxNewSizePercent=40",
+    "-XX:G1HeapRegionSize=8M",
+    "-XX:G1ReservePercent=20",
+    "-XX:G1HeapWastePercent=5",
+    "-XX:G1MixedGCCountTarget=4",
+    "-XX:InitiatingHeapOccupancyPercent=15",
+    "-XX:G1MixedGCLiveThresholdPercent=90",
+    "-XX:G1RSetUpdatingPauseTimePercent=5",
+    "-XX:SurvivorRatio=32",
+    "-XX:+PerfDisableSharedMem",
+    "-XX:MaxTenuringThreshold=1",
+    "-Dusing.aikars.flags=https://mcflags.emc.gs",
+    "-Daikars.new.flags=true",
+)
+
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
@@ -107,6 +132,14 @@ def validate_memory(memory_mb: int) -> int:
     if not 512 <= memory_mb <= 65536:
         raise ValidationError("Memory must be between 512 and 65536 MB.")
     return memory_mb
+
+
+def validate_cpu_cores(cores: int) -> int:
+    if isinstance(cores, bool) or not isinstance(cores, int):
+        raise ValidationError("CPU cores must be an integer.")
+    if not 1 <= cores <= 1024:
+        raise ValidationError("CPU cores must be between 1 and 1024.")
+    return cores
 
 
 def validate_java_major(major: int) -> int:
@@ -238,11 +271,14 @@ class Server:
     build: int
     java_major: int
     memory_mb: int = 2048
+    min_memory_mb: int | None = None
+    cpu_cores: int | None = None
     port: int = 25565
     java_path: str | None = None
     eula_accepted: bool = False
     jar_file: str = "server.jar"
-    extra_args: list[str] = field(default_factory=list)
+    extra_args: list[str] = field(default_factory=lambda: list(AIKAR_FLAGS))
+    recovery_args: list[str] = field(default_factory=list)
     created_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )
@@ -258,12 +294,24 @@ class Server:
             raise ValidationError("Build number must be a non-negative integer.")
         self.java_major = validate_java_major(self.java_major)
         self.memory_mb = validate_memory(self.memory_mb)
+        if self.min_memory_mb is not None:
+            self.min_memory_mb = validate_memory(self.min_memory_mb)
+            if self.min_memory_mb > self.memory_mb:
+                raise ValidationError(
+                    "Minimum memory (min_memory_mb) cannot exceed maximum memory "
+                    "(memory_mb)."
+                )
+        if self.cpu_cores is not None:
+            self.cpu_cores = validate_cpu_cores(self.cpu_cores)
         self.port = validate_port(self.port)
         if not self.jar_file or "/" in self.jar_file or "\\" in self.jar_file:
             raise ValidationError("Jar file must be a plain file name.")
         if not isinstance(self.extra_args, list):
             raise ValidationError("extra_args must be a list of strings.")
         self.extra_args = [str(arg) for arg in self.extra_args]
+        if not isinstance(self.recovery_args, list):
+            raise ValidationError("recovery_args must be a list of strings.")
+        self.recovery_args = [str(arg) for arg in self.recovery_args]
 
     @property
     def is_proxy(self) -> bool:
@@ -283,10 +331,13 @@ class Server:
             "java_major": self.java_major,
             "java_path": self.java_path,
             "memory_mb": self.memory_mb,
+            "min_memory_mb": self.min_memory_mb,
+            "cpu_cores": self.cpu_cores,
             "port": self.port,
             "eula_accepted": self.eula_accepted,
             "jar_file": self.jar_file,
             "extra_args": list(self.extra_args),
+            "recovery_args": list(self.recovery_args),
             "created_at": self.created_at,
         }
 
@@ -313,12 +364,36 @@ class Server:
                     f"integer, got {value!r}."
                 ) from exc
 
+        def optional_integer(field_name: str) -> int | None:
+            value = data.get(field_name)
+            if value is None or value == "":
+                return None
+            if isinstance(value, bool):
+                raise ValidationError(
+                    f"Server '{name}' metadata field '{field_name}' must be an integer."
+                )
+            try:
+                return int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(
+                    f"Server '{name}' metadata field '{field_name}' must be an "
+                    f"integer, got {value!r}."
+                ) from exc
+
         extra_args = data.get("extra_args")
         if extra_args is None:
             extra_args = []
         elif not isinstance(extra_args, list):
             raise ValidationError(
                 f"Server '{name}' metadata field 'extra_args' must be a list of strings."
+            )
+
+        recovery_args = data.get("recovery_args")
+        if recovery_args is None:
+            recovery_args = []
+        elif not isinstance(recovery_args, list):
+            raise ValidationError(
+                f"Server '{name}' metadata field 'recovery_args' must be a list of strings."
             )
 
         java_path = data.get("java_path")
@@ -343,11 +418,14 @@ class Server:
             build=integer("build", 0),
             java_major=integer("java_major", 21),
             memory_mb=integer("memory_mb", 2048),
+            min_memory_mb=optional_integer("min_memory_mb"),
+            cpu_cores=optional_integer("cpu_cores"),
             port=integer("port", 25565),
             java_path=java_path,
             eula_accepted=bool(data.get("eula_accepted", False)),
             jar_file=str(data.get("jar_file", "server.jar")),
             extra_args=[str(arg) for arg in extra_args],
+            recovery_args=[str(arg) for arg in recovery_args],
             created_at=str(created_at),
             schema=integer("schema", 1),
         )

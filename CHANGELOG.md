@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-04
+
+### Added
+
+- The server screen now has an **Edit** button that opens a dedicated editor
+  with three tabs:
+  - **General**: server name, minimum and maximum RAM, launch flags
+    (Aikar's performant flags by default), CPU core allocation, Java path and
+    Java version. Fields that can break a server are marked with
+    "If you don't know, don't change it!".
+  - **server.properties**: every property is shown as an editable row.
+  - **Dangerous**: delete the server after an explicit confirmation.
+- New server metadata fields: `min_memory_mb` and `cpu_cores`. The launch
+  command uses `-Xms<min>`, `-Xmx<max>` and `-XX:ActiveProcessorCount=N`;
+  Slime also applies a best-effort OS CPU affinity for the selected cores.
+- Servers created by Slime use Aikar's performant JVM flags by default.
+
+### Fixed
+
+- A server that prints a Java exception now ends in the `crashed` state even
+  when the Java process exits with status 0. Non-zero exit codes still mark the
+  server as crashed, while a user-requested stop or kill remains `stopped`.
+
+## [1.2.1] - 2026-11-04
+
+### Fixed
+
+- Servers on older Paper builds (for example 1.12.2) no longer fail to start
+  with `nogui is not a recognized option`. Slime now passes the vanilla-style
+  `nogui` argument, which is accepted by old and new Paper builds alike.
+
+### Added
+
+- When server output contains a recovery hint such as `reset to vanilla with
+  --safeMode`, Slime remembers the flag and offers to start the server with it
+  on the next launch (TUI) or the next interactive `slime server run`.
+- Java exception and stack trace lines in the TUI console are highlighted red,
+  matching the existing `ERROR` highlighting.
+
 ## [1.2.0] - 2026-11-03
 
 ### Added
@@ -138,7 +177,9 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.3.0
+[1.2.1]: https://github.com/cizik5064-bit/slime/releases/tag/v1.2.1
 [1.2.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.2.0
 [1.1.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.1.0
 [1.0.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.0.0

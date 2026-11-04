@@ -8,7 +8,7 @@ import pytest
 
 from slime.errors import ServerError
 from slime.models import Server
-from slime.process import ServerProcess, ServerState
+from slime.process import ServerProcess, ServerState, suggested_arguments
 
 
 def make_server(name: str = "survival", **overrides: object) -> Server:
@@ -30,6 +30,7 @@ def make_process(
     *,
     server: Server | None = None,
     script: str | None = None,
+    on_recovery=None,
 ) -> ServerProcess:
     server = server or make_server()
     command_override = None
@@ -43,6 +44,7 @@ def make_process(
         tmp_path / "java",
         log_dir=tmp_path / "logs",
         command_override=command_override,
+        on_recovery=on_recovery,
     )
 
 
@@ -75,7 +77,8 @@ def test_build_command_for_server() -> None:
     assert command[0] == "java"
     assert "-Xms2048M" in command
     assert "-Xmx2048M" in command
-    assert "--nogui" in command
+    assert "nogui" in command
+    assert "--nogui" not in command
     assert command[-1] == "-Dfoo=bar"
     assert process.pid is None
     assert process.state is ServerState.STOPPED
@@ -89,7 +92,21 @@ def test_build_command_for_proxy() -> None:
         Path("java"),
         log_dir=Path("logs"),
     )
-    assert "--nogui" not in process.build_command()
+    command = process.build_command()
+    assert "nogui" not in command
+
+
+def test_build_command_uses_min_memory_and_cpu_cores() -> None:
+    process = ServerProcess(
+        make_server(min_memory_mb=1024, memory_mb=4096, cpu_cores=2),
+        Path("server"),
+        Path("java"),
+        log_dir=Path("logs"),
+    )
+    command = process.build_command()
+    assert "-Xms1024M" in command
+    assert "-Xmx4096M" in command
+    assert "-XX:ActiveProcessorCount=2" in command
 
 
 def test_command_override() -> None:
@@ -181,6 +198,32 @@ async def test_crash_sets_crashed_state(tmp_path: Path) -> None:
     assert process.exit_code == 3
 
 
+async def test_exception_sets_crashed_state_even_with_zero_exit(tmp_path: Path) -> None:
+    script = (
+        "import sys\n"
+        "print('java.lang.IllegalStateException: broken', flush=True)\n"
+        "sys.exit(0)\n"
+    )
+    process = make_process(tmp_path, script=script)
+    await process.start()
+    assert await process.wait() == 0
+    await wait_for_state(process, ServerState.CRASHED)
+    assert process.exit_code == 0
+
+
+async def test_user_kill_is_not_reported_as_crash(tmp_path: Path) -> None:
+    script = (
+        "import sys, time\n"
+        "print('java.lang.IllegalStateException: broken', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    process = make_process(tmp_path, script=script)
+    await process.start()
+    await wait_for_line(process, "IllegalStateException")
+    await process.force_kill()
+    await wait_for_state(process, ServerState.STOPPED)
+
+
 async def test_send_when_not_running(tmp_path: Path) -> None:
     process = make_process(tmp_path)
     with pytest.raises(ServerError, match="not running"):
@@ -218,3 +261,34 @@ async def test_uptime_and_remove_listener(tmp_path: Path) -> None:
 def test_terminate_now_without_process(tmp_path: Path) -> None:
     process = make_process(tmp_path)
     process.terminate_now()
+
+
+def test_suggested_arguments_from_error_line() -> None:
+    line = (
+        "[12:36:55 WARN]: Failed to load datapacks, can't proceed with server "
+        "load. You can either fix your datapacks or reset to vanilla with --safeMode"
+    )
+    assert suggested_arguments(line) == ["--safeMode"]
+
+
+def test_suggested_arguments_ignores_unrelated_flags() -> None:
+    assert suggested_arguments("[INFO]: starting with --nogui") == []
+    assert suggested_arguments("[WARN]: use --add-plugin for more plugins") == []
+
+
+async def test_process_reports_recovery_arguments(tmp_path: Path) -> None:
+    script = (
+        "import sys\n"
+        "print(\"[12:36:55 WARN]: Failed to load datapacks, can't proceed with "
+        "server load. You can either fix your datapacks or reset to vanilla "
+        "with --safeMode\", flush=True)\n"
+        "sys.exit(1)\n"
+    )
+    received: list[list[str]] = []
+    process = make_process(tmp_path, script=script, on_recovery=received.append)
+
+    await process.start()
+    await process.wait()
+
+    assert received == [["--safeMode"]]
+    assert process.recovery_args == ["--safeMode"]

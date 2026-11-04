@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import ClassVar
 
 from textual.app import App, ComposeResult
@@ -110,7 +111,9 @@ class SlimeApp(App[None]):
     def get_process(self, name: str) -> ServerProcess | None:
         return self.processes.get(name)
 
-    async def start_server(self, server: Server) -> ServerProcess:
+    async def start_server(
+        self, server: Server, *, extra_args: list[str] | None = None
+    ) -> ServerProcess:
         existing = self.processes.get(server.name)
         if existing is not None and existing.is_running:
             return existing
@@ -121,7 +124,9 @@ class SlimeApp(App[None]):
             self.store.path(server.name),
             install.path,
             log_dir=self.config.paths.logs,
+            extra_args=extra_args,
             java_home=install.home,
+            on_recovery=lambda args: self._remember_recovery(server, args),
         )
         def on_state(state: ServerState, name: str = server.name) -> None:
             self._on_process_state(name, state)
@@ -135,6 +140,15 @@ class SlimeApp(App[None]):
             raise
         self.refresh_dashboard()
         return process
+
+    def _remember_recovery(self, server: Server, args: list[str]) -> None:
+        """Persist arguments suggested by the latest server error."""
+        merged = list(dict.fromkeys([*server.recovery_args, *args]))
+        if merged == server.recovery_args:
+            return
+        server.recovery_args = merged
+        with contextlib.suppress(SlimeError, OSError):
+            self.store.save(server)
 
     async def stop_server(self, name: str) -> None:
         process = self.processes.get(name)

@@ -82,6 +82,73 @@ Footer {
     margin-top: 1;
 }
 
+/* ------------------------------------------------------------------- edit */
+
+#edit-body {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#edit-title {
+    height: 1;
+    text-style: bold;
+    color: $accent;
+}
+
+#edit-tabs {
+    height: 1fr;
+}
+
+#general-scroll,
+#properties-list,
+#dangerous-scroll {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#edit-body Label {
+    margin-top: 1;
+}
+
+#edit-body Input,
+#edit-body Select {
+    width: 100%;
+}
+
+#edit-flags {
+    height: 12;
+    border: round $primary;
+}
+
+.property-row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.property-key {
+    width: 34;
+    content-align: left middle;
+}
+
+.property-value {
+    width: 1fr;
+}
+
+.danger-hint {
+    height: 1;
+    color: $error;
+    text-style: bold;
+}
+
+#edit-buttons {
+    height: auto;
+    margin-top: 1;
+}
+
+#edit-buttons Button {
+    margin-right: 1;
+}
+
 /* ------------------------------------------------------------------- java */
 
 #java-body,

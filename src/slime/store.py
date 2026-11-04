@@ -111,6 +111,33 @@ class ServerStore:
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
+    # ---------------------------------------------------------------- rename
+    def rename(self, old_name: str, new_name: str) -> Path:
+        """Move a server directory to a new name.
+
+        The caller is responsible for updating the ``Server`` object and
+        saving its metadata after the directory has been moved.
+        """
+        old_directory = self.path(old_name)
+        new_directory = self.path(new_name)
+        if old_directory == new_directory:
+            return new_directory
+        if not old_directory.is_dir():
+            raise ServerError(f"Server '{old_name}' does not exist.")
+        if new_directory.exists():
+            raise ServerError(
+                f"Server '{new_name}' already exists.",
+                hint="Choose another server name.",
+            )
+        try:
+            old_directory.rename(new_directory)
+        except OSError as exc:
+            raise ServerError(
+                f"Cannot rename '{old_name}' to '{new_name}': {exc}",
+                hint="Stop the server first and check directory permissions.",
+            ) from exc
+        return new_directory
+
     # ---------------------------------------------------------------- delete
     def delete(self, name: str, *, keep_files: bool = False) -> None:
         server = self.get(name)

@@ -107,6 +107,27 @@ def test_metadata_path_validates_name(store: ServerStore) -> None:
         store.path("../escape")
 
 
+def test_rename_moves_directory(store: ServerStore) -> None:
+    server = make_server()
+    store.save(server)
+    (store.path("survival") / "world").mkdir()
+
+    new_path = store.rename("survival", "creative")
+
+    assert new_path == store.path("creative")
+    assert not store.path("survival").exists()
+    assert (new_path / "world").is_dir()
+    with pytest.raises(ServerError, match="does not exist"):
+        store.rename("survival", "other")
+
+
+def test_rename_rejects_existing_target(store: ServerStore) -> None:
+    store.save(make_server("survival"))
+    store.save(make_server("creative"))
+    with pytest.raises(ServerError, match="already exists"):
+        store.rename("survival", "creative")
+
+
 def test_pid_helpers(store: ServerStore) -> None:
     assert store.read_pid("survival") is None
     store.write_pid("survival", 4242)

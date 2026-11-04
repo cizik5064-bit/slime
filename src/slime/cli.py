@@ -7,7 +7,7 @@ import signal
 import sys
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, NoReturn, cast
@@ -277,6 +277,13 @@ def _print_server_table(servers: list[Server], store: ServerStore) -> None:
     console.print(table)
 
 
+def _memory_label(server: Server) -> str:
+    minimum = server.min_memory_mb or server.memory_mb
+    if minimum == server.memory_mb:
+        return f"{server.memory_mb} MB"
+    return f"{minimum}-{server.memory_mb} MB"
+
+
 def _server_payload(server: Server, store: ServerStore) -> dict[str, object]:
     running, pid = store.is_running(server.name)
     payload = server.to_dict()
@@ -538,7 +545,7 @@ def server_create(
             f"Name:     [cyan]{escape(server.name)}[/cyan]\n"
             f"Project:  {server.project.display_name} {escape(server.minecraft_version)} "
             f"(build {server.build})\n"
-            f"Memory:   {server.memory_mb} MB\n"
+            f"Memory:   {_memory_label(server)}\n"
             f"Port:     {server.port}\n"
             f"Java:     {server.java_major}\n"
             f"Location: {escape(str(app_context.store.path(server.name)))}",
@@ -611,7 +618,9 @@ def server_info(
     table.add_row("Path", str(app_context.store.path(server.name)))
     table.add_row("Jar", server.jar_file)
     table.add_row("Port", str(server.port))
-    table.add_row("Memory", f"{server.memory_mb} MB")
+    table.add_row("Memory", _memory_label(server))
+    if server.cpu_cores is not None:
+        table.add_row("CPU cores", str(server.cpu_cores))
     table.add_row("Java required", str(server.java_major))
     table.add_row(
         "Java resolved",
@@ -686,6 +695,7 @@ def server_run(
                 f"Server jar is missing: {jar}",
                 hint="Recreate the server or download the jar manually.",
             )
+        _offer_recovery_args(server, app_context.store)
         server_dir = app_context.store.path(name)
 
     code = asyncio.run(
@@ -699,6 +709,39 @@ def server_run(
     )
     if code != 0:
         raise typer.Exit(code)
+
+
+def _offer_recovery_args(server: Server, store: ServerStore) -> None:
+    """Offer to start with arguments suggested by the previous server error."""
+    if not server.recovery_args:
+        return
+    flags = " ".join(server.recovery_args)
+    if not sys.stdin.isatty():
+        console.print(
+            f"[yellow]Hint:[/yellow] the previous run suggested {flags}. "
+            "Start Slime interactively to accept it."
+        )
+        return
+    accept = Confirm.ask(
+        f"The previous run suggested starting with {flags}. Start with it?",
+        default=True,
+    )
+    if accept:
+        server.extra_args = list(
+            dict.fromkeys([*server.extra_args, *server.recovery_args])
+        )
+    server.recovery_args = []
+    store.save(server)
+
+
+def _remember_recovery(store: ServerStore, server: Server, args: list[str]) -> None:
+    """Persist recovery arguments detected in server output."""
+    merged = list(dict.fromkeys([*server.recovery_args, *args]))
+    if merged == server.recovery_args:
+        return
+    server.recovery_args = merged
+    with suppress(ServerError, OSError):
+        store.save(server)
 
 
 async def _run_foreground(
@@ -724,6 +767,7 @@ async def _run_foreground(
         java_install.path,
         log_dir=app_context.config.paths.logs,
         java_home=java_install.home,
+        on_recovery=lambda args: _remember_recovery(app_context.store, server, args),
     )
     process.add_line_listener(
         lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
@@ -763,6 +807,8 @@ async def _run_foreground(
             console.print("[yellow]Stopping server…[/yellow]")
             await process.stop()
         code = process.exit_code
+        if process.state is ServerState.CRASHED and not code:
+            return 1
         return code if code is not None else 0
     finally:
         if process.is_running:

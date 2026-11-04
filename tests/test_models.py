@@ -140,22 +140,36 @@ class TestServer:
     def test_defaults_and_properties(self) -> None:
         server = self.make()
         assert server.memory_mb == 2048
+        assert server.min_memory_mb is None
+        assert server.cpu_cores is None
         assert server.port == 25565
         assert server.jar_file == "server.jar"
         assert server.is_proxy is False
         assert server.kind == "server"
         assert server.created_at
+        assert server.extra_args
 
     def test_round_trip(self) -> None:
         server = self.make(
             memory_mb=4096,
+            min_memory_mb=1024,
+            cpu_cores=2,
             port=25566,
             java_path=r"C:\Java\bin\java.exe",
             eula_accepted=True,
             extra_args=["-Dfoo=bar"],
+            recovery_args=["--safeMode"],
         )
         restored = Server.from_dict(server.to_dict())
         assert restored == server
+
+    def test_minimum_memory_cannot_exceed_maximum(self) -> None:
+        with pytest.raises(ValidationError, match="Minimum memory"):
+            self.make(memory_mb=2048, min_memory_mb=4096)
+
+    def test_invalid_cpu_cores_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="CPU cores"):
+            self.make(cpu_cores=0)
 
     def test_from_dict_requires_name(self) -> None:
         with pytest.raises(ValidationError, match="name"):
@@ -186,6 +200,16 @@ class TestServer:
                     "name": "survival",
                     "minecraft_version": "1.21.4",
                     "extra_args": "--foo",
+                }
+            )
+
+    def test_from_dict_rejects_recovery_args_string(self) -> None:
+        with pytest.raises(ValidationError, match="recovery_args"):
+            Server.from_dict(
+                {
+                    "name": "survival",
+                    "minecraft_version": "1.21.4",
+                    "recovery_args": "--safeMode",
                 }
             )
 

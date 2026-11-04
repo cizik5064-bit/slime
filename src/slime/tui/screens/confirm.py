@@ -23,11 +23,13 @@ class ConfirmScreen(ModalScreen[bool]):
         message: str,
         *,
         confirm_label: str = "Confirm",
+        cancel_label: str = "Cancel",
         danger: bool = True,
     ) -> None:
         super().__init__()
         self.message = message
         self.confirm_label = confirm_label
+        self.cancel_label = cancel_label
         self.danger = danger
 
     def compose(self) -> ComposeResult:
@@ -39,7 +41,7 @@ class ConfirmScreen(ModalScreen[bool]):
                     id="confirm",
                     variant="error" if self.danger else "primary",
                 )
-                yield Button("Cancel", id="cancel")
+                yield Button(self.cancel_label, id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "confirm")

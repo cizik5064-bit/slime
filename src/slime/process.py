@@ -19,6 +19,47 @@ from .models import Project, Server
 _READY_RE = re.compile(r"(Done \(|Listening on /|Done in |Done \()", re.IGNORECASE)
 _LINE_LIMIT = 3000
 
+# Flags that Minecraft/Paper error messages suggest as a recovery step.
+_RECOVERY_FLAGS = {
+    "--forceupgrade": "--forceUpgrade",
+    "--erasecache": "--eraseCache",
+    "--recreateregionfiles": "--recreateRegionFiles",
+    "--safemode": "--safeMode",
+}
+_FLAG_RE = re.compile(r"--[A-Za-z][\w-]*")
+_FAILURE_RE = re.compile(
+    r"\b(?:error|warn(?:ing)?|failed|failure|cannot|can't|unable|corrupt|broken)\b",
+    re.IGNORECASE,
+)
+# Lines that look like a Java exception or stack trace. Used to mark a process
+# as crashed even when Java exits with status 0 after printing a throwable.
+_EXCEPTION_LINE_RE = re.compile(
+    r"(?:^|\s)(?:[\w$]+\.)+[\w$]*(?:Exception|Error|Throwable)\b"
+    r"|Exception in thread\b"
+    r"|Uncaught exception\b"
+    r"|^\s*Caused by:"
+    r"|^\s*Suppressed:"
+    r"|^\s*at\s+[\w$./]+(?:\(|\.)"
+)
+
+
+def suggested_arguments(line: str) -> list[str]:
+    """Return recovery arguments suggested by a server error or warning line.
+
+    Minecraft and Paper mention recovery flags in plain text, for example
+    ``reset to vanilla with --safeMode``. Only a small allow-list is
+    considered so unrelated flags in plugin output are ignored.
+    """
+    if not _FAILURE_RE.search(line):
+        return []
+    found: list[str] = []
+    for match in _FLAG_RE.finditer(line):
+        flag = match.group(0)
+        canonical = _RECOVERY_FLAGS.get(flag.lower())
+        if canonical is not None and canonical not in found:
+            found.append(canonical)
+    return found
+
 
 class ServerState(StrEnum):
     STOPPED = "stopped"
@@ -31,6 +72,7 @@ class ServerState(StrEnum):
 LineListener = Callable[[str], None]
 StateListener = Callable[[ServerState], None]
 ExitListener = Callable[[int], None]
+RecoveryListener = Callable[[list[str]], None]
 
 
 class ServerProcess:
@@ -53,6 +95,7 @@ class ServerProcess:
         extra_args: list[str] | None = None,
         command_override: list[str] | None = None,
         java_home: str | Path | None = None,
+        on_recovery: RecoveryListener | None = None,
     ) -> None:
         self.server = server
         self.server_dir = Path(server_dir)
@@ -61,6 +104,8 @@ class ServerProcess:
         self.extra_args = list(extra_args if extra_args is not None else server.extra_args)
         self.command_override = command_override
         self.java_home = Path(java_home) if java_home is not None else None
+        self._recovery_listener = on_recovery
+        self.recovery_args: list[str] = []
 
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -72,6 +117,7 @@ class ServerProcess:
         self._exit_listeners: list[ExitListener] = []
         self._log_handle: TextIO | None = None
         self._started_at: datetime | None = None
+        self._saw_exception = False
 
     # --------------------------------------------------------------- listeners
     def add_line_listener(self, listener: LineListener) -> None:
@@ -132,16 +178,18 @@ class ServerProcess:
     def build_command(self) -> list[str]:
         if self.command_override is not None:
             return list(self.command_override)
+        min_memory = self.server.min_memory_mb or self.server.memory_mb
         command = [
             str(self.java_path),
-            f"-Xms{self.server.memory_mb}M",
+            f"-Xms{min_memory}M",
             f"-Xmx{self.server.memory_mb}M",
             "-Dfile.encoding=UTF-8",
-            "-jar",
-            self.server.jar_file,
         ]
+        if self.server.cpu_cores is not None:
+            command.append(f"-XX:ActiveProcessorCount={self.server.cpu_cores}")
+        command.extend(["-jar", self.server.jar_file])
         if not self.server.is_proxy:
-            command.append("--nogui")
+            command.append("nogui")
         command.extend(self.extra_args)
         return command
 
@@ -179,6 +227,7 @@ class ServerProcess:
 
         self._set_state(ServerState.STARTING)
         self._exit_code = None
+        self._saw_exception = False
         self._started_at = datetime.now(UTC)
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -198,7 +247,21 @@ class ServerProcess:
             ) from exc
 
         self._write_pid()
+        self._apply_cpu_affinity()
         self._reader_task = asyncio.create_task(self._pump(), name=f"slime-console-{self.server.name}")
+
+    def _apply_cpu_affinity(self) -> None:
+        """Best-effort OS-level CPU affinity, in addition to ActiveProcessorCount."""
+        cores = self.server.cpu_cores
+        if cores is None or self._process is None or self._process.pid is None:
+            return
+        with contextlib.suppress(Exception):
+            import psutil
+
+            process = psutil.Process(self._process.pid)
+            current = process.cpu_affinity()
+            if current:
+                process.cpu_affinity(current[:cores])
 
     def _write_pid(self) -> None:
         if self.pid is None:
@@ -230,6 +293,18 @@ class ServerProcess:
                         pass
                 if self._state is ServerState.STARTING and _READY_RE.search(line):
                     self._set_state(ServerState.RUNNING)
+                if _EXCEPTION_LINE_RE.search(line):
+                    self._saw_exception = True
+                new_recovery_args = [
+                    argument
+                    for argument in suggested_arguments(line)
+                    if argument not in self.recovery_args
+                ]
+                if new_recovery_args:
+                    self.recovery_args.extend(new_recovery_args)
+                    if self._recovery_listener is not None:
+                        with contextlib.suppress(Exception):
+                            self._recovery_listener(list(self.recovery_args))
                 for line_listener in list(self._line_listeners):
                     try:
                         line_listener(line)
@@ -250,10 +325,13 @@ class ServerProcess:
             self._clear_pid()
             self._close_log()
             if not cancelled:
-                if self._state is ServerState.STOPPING or self._exit_code == 0:
-                    self._set_state(ServerState.STOPPED)
-                else:
-                    self._set_state(ServerState.CRASHED)
+                user_stopped = self._state is ServerState.STOPPING
+                crashed = not user_stopped and (
+                    self._exit_code != 0 or self._saw_exception
+                )
+                self._set_state(
+                    ServerState.CRASHED if crashed else ServerState.STOPPED
+                )
                 for exit_listener in list(self._exit_listeners):
                     try:
                         exit_listener(self._exit_code or 0)
@@ -322,6 +400,21 @@ class ServerProcess:
         if self._process is not None and self._process.returncode is None:
             with contextlib.suppress(ProcessLookupError, OSError):
                 self._process.terminate()
+
+    async def force_kill(self) -> None:
+        """Immediately kill the process, skipping the graceful shutdown sequence.
+
+        Used when the server is unresponsive (e.g. stuck on STOPPING, or not
+        answering stdin) and the user wants out now rather than waiting for
+        the stop() timeout chain to run its course.
+        """
+        if self._process is None or self._process.returncode is not None:
+            self._set_state(ServerState.STOPPED)
+            return
+        self._set_state(ServerState.STOPPING)
+        with contextlib.suppress(ProcessLookupError, OSError):
+            self._process.kill()
+        await self.wait()
 
     # -------------------------------------------------------------------- state
     def _set_state(self, state: ServerState) -> None:

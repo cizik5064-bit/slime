@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from textual.widgets import Input, TextArea
+from textual.widgets import Input, Select, TextArea
 
 from slime.config import Config
-from slime.models import Server
+from slime.models import AIKAR_FLAGS, Server
 from slime.properties import ensure_server_properties
 from slime.tui.app import SlimeApp
 from slime.tui.screens.confirm import HoldConfirmScreen
@@ -64,12 +64,12 @@ async def test_edit_screen_saves_general_settings(tmp_path: Path) -> None:
     assert saved.min_memory_mb == 1024
     assert saved.memory_mb == 4096
     assert saved.cpu_cores == 2
-    assert saved.extra_args == ["-Dfoo=bar"]
+    assert saved.extra_args == ["-XX:+UseG1GC", "-Dfoo=bar"]
     assert saved.port == 25566
     assert (app.store.path("creative") / "server.properties").is_file()
 
 
-async def test_internal_aikar_flags_are_hidden_from_the_editor(tmp_path: Path) -> None:
+async def test_aikar_flags_are_the_default_in_the_editor(tmp_path: Path) -> None:
     config = Config(tmp_path / "home")
     app = SlimeApp(config)
     server = make_server()
@@ -83,7 +83,40 @@ async def test_internal_aikar_flags_are_hidden_from_the_editor(tmp_path: Path) -
         app.push_screen(EditServerScreen(app, server))
         await pilot.pause()
         flags = app.screen.query_one("#edit-flags", TextArea).text.split()
-        assert flags == []
+        assert flags == list(AIKAR_FLAGS)
+        gc = app.screen.query_one("#edit-gc", Select)
+        assert gc.value == "G1GC"
+
+
+async def test_selecting_gc_collector_updates_launch_flags(tmp_path: Path) -> None:
+    config = Config(tmp_path / "home")
+    app = SlimeApp(config)
+    server = make_server()
+    app.store.save(server)
+    ensure_server_properties(
+        app.store.path(server.name) / "server.properties",
+        port=server.port,
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(EditServerScreen(app, server))
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, EditServerScreen)
+        screen.query_one("#edit-gc", Select).value = "ZGC"
+        await pilot.pause()
+        flags = screen.query_one("#edit-flags", TextArea).text.split()
+        assert "-XX:+UseZGC" in flags
+        assert "-XX:+UseG1GC" not in flags
+        assert "-XX:G1NewSizePercent=30" not in flags
+
+        await pilot.click("#edit-save")
+        await pilot.pause()
+
+    saved = app.store.get("survival")
+    assert saved.gc_collector == "ZGC"
+    assert "-XX:+UseZGC" in saved.extra_args
+    assert "-XX:+UseG1GC" not in saved.extra_args
 
 
 async def test_edit_screen_parses_multiline_and_continued_flags(
@@ -110,7 +143,12 @@ async def test_edit_screen_parses_multiline_and_continued_flags(
         await pilot.pause()
 
     saved = app.store.get("survival")
-    assert saved.extra_args == ["-Dfoo=bar", "-Dbaz=qux", "-Dthird=yes"]
+    assert saved.extra_args == [
+        "-XX:+UseG1GC",
+        "-Dfoo=bar",
+        "-Dbaz=qux",
+        "-Dthird=yes",
+    ]
 
 
 async def test_edit_screen_resets_world_after_hold_confirmation(

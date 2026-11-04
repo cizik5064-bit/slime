@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-04
+
+### Added
+
+- Aikar's performant JVM flags are now the default contents of **Launch flags**
+  for new servers and are visible/editable in **Edit → General**. Servers saved
+  by 1.5.0 with hidden, empty flags are migrated to the same defaults.
+- **GC collector** selector in **Edit → General**: G1GC (Aikar's default), ZGC,
+  Shenandoah, Parallel and Serial. Choosing a non-G1 collector removes G1-only
+  flags automatically and adds the matching `-XX:+Use...GC` flag.
+
+### Changed
+
+- JVM flags are now placed before `-jar`, while server arguments such as
+  `nogui` and `--safeMode` stay after the jar. This fixes custom `-D`/`-XX`
+  flags being passed to the server as command-line arguments.
+
+### Fixed
+
+- **Restart** is disabled unless the server is actually running, so it can no
+  longer start a stopped server by accident.
+
 ## [1.5.0] - 2026-11-04
 
 ### Added
@@ -234,7 +256,8 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.6.0
 [1.5.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.5.0
 [1.4.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.4.0
 [1.3.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.3.0

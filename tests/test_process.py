@@ -81,12 +81,51 @@ def test_build_command_for_server() -> None:
     assert "-Xmx2048M" in command
     assert "nogui" in command
     assert "--nogui" not in command
-    assert command[-1] == "-Dfoo=bar"
-    for flag in AIKAR_FLAGS:
-        assert command.count(flag) == 1
+    assert command.index("-Dfoo=bar") < command.index("-jar")
+    assert "-XX:+UseG1GC" in command
     assert process.pid is None
     assert process.state is ServerState.STOPPED
     assert process.is_running is False
+
+
+def test_default_server_uses_aikar_flags() -> None:
+    process = ServerProcess(
+        make_server(),
+        Path("server"),
+        Path("java"),
+        log_dir=Path("logs"),
+    )
+    command = process.build_command()
+    for flag in AIKAR_FLAGS:
+        assert command.count(flag) == 1
+        assert command.index(flag) < command.index("-jar")
+
+
+def test_non_g1_collector_replaces_g1_flags() -> None:
+    process = ServerProcess(
+        make_server(gc_collector="ZGC"),
+        Path("server"),
+        Path("java"),
+        log_dir=Path("logs"),
+    )
+    command = process.build_command()
+    assert "-XX:+UseZGC" in command
+    assert "-XX:+UseG1GC" not in command
+    assert "-XX:G1NewSizePercent=30" not in command
+    assert "-XX:+UseZGC" not in command[command.index("-jar") :]
+
+
+def test_server_arguments_stay_after_the_jar() -> None:
+    process = ServerProcess(
+        make_server(),
+        Path("server"),
+        Path("java"),
+        log_dir=Path("logs"),
+        extra_args=[*make_server().extra_args, "--safeMode"],
+    )
+    command = process.build_command()
+    assert command.index("--safeMode") > command.index("-jar")
+    assert command.index("nogui") > command.index("-jar")
 
 
 def test_build_command_for_proxy() -> None:

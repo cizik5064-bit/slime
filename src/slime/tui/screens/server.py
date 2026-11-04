@@ -206,10 +206,7 @@ class ServerScreen(Screen):
             ServerState.STARTING,
             ServerState.STOPPING,
         }
-        self.query_one("#restart", Button).disabled = state in {
-            ServerState.STARTING,
-            ServerState.STOPPING,
-        }
+        self.query_one("#restart", Button).disabled = state is not ServerState.RUNNING
         self.query_one("#command", Input).disabled = state is not ServerState.RUNNING
 
     # ----------------------------------------------------------------- actions
@@ -340,6 +337,9 @@ class ServerScreen(Screen):
         self.update_status(ServerState.STOPPED)
 
     async def restart_server(self) -> None:
+        process = self.slime.get_process(self.server.name)
+        if process is None or process.state is not ServerState.RUNNING:
+            return
         self.append_line(slime_message("Restarting server..."))
         await self.stop_server()
         await self.start_server()

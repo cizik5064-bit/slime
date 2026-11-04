@@ -27,9 +27,12 @@ from textual.widgets import (
 
 from ...errors import SlimeError, ValidationError
 from ...models import (
+    GC_COLLECTORS,
     Server,
+    ensure_gc_flags,
     parse_launch_flags,
     validate_cpu_cores,
+    validate_gc_collector,
     validate_java_major,
     validate_memory,
     validate_port,
@@ -46,6 +49,14 @@ if TYPE_CHECKING:
     from ..app import SlimeApp
 
 JAVA_MAJORS = (8, 11, 16, 17, 21, 25)
+
+GC_LABELS = {
+    "G1GC": "G1GC - Aikar, recommended",
+    "ZGC": "ZGC - low pause",
+    "Shenandoah": "Shenandoah - low pause",
+    "Parallel": "Parallel",
+    "Serial": "Serial",
+}
 
 #: Shown next to settings that can break a server when changed carelessly.
 DANGER_HINT = "If you don't know, don't change it!"
@@ -114,13 +125,30 @@ class EditServerScreen(Screen[Server | str | None]):
                                     id="edit-max-memory",
                                 )
 
+                        yield Label("GC collector")
+                        yield Select(
+                            [
+                                (GC_LABELS[name], name)
+                                for name in GC_COLLECTORS
+                            ],
+                            value=self.server.gc_collector,
+                            id="edit-gc",
+                            allow_blank=False,
+                        )
+                        yield Static(
+                            "Aikar's flags are tuned for G1GC. Choosing another "
+                            "collector removes G1-only flags automatically.",
+                            classes="hint",
+                        )
+
                         yield Label("Launch flags")
                         yield Static(DANGER_HINT, classes="danger-hint")
                         yield TextArea(flags, id="edit-flags")
                         yield Static(
-                            "One flag per line, separated by spaces, or joined with "
-                            "a trailing backslash. RAM, CPU cores, nogui, recovery "
-                            "flags and Aikar's defaults are added automatically and "
+                            "Aikar's performant flags are pre-filled for new "
+                            "servers. One flag per line, separated by spaces, or "
+                            "joined with a trailing backslash. RAM, CPU cores, "
+                            "nogui and recovery flags are added automatically and "
                             "are not shown here. Takes effect on the next start.",
                             classes="hint",
                         )
@@ -207,6 +235,19 @@ class EditServerScreen(Screen[Server | str | None]):
     def on_mount(self) -> None:
         self.query_one("#edit-name", Input).focus()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "edit-gc":
+            return
+        if event.value is Select.BLANK:
+            return
+        area = self.query_one("#edit-flags", TextArea)
+        try:
+            flags = parse_launch_flags(area.text)
+            flags = ensure_gc_flags(flags, str(event.value))
+        except ValidationError:
+            return
+        area.load_text("\n".join(flags))
+
     # ----------------------------------------------------------------- actions
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -264,7 +305,15 @@ class EditServerScreen(Screen[Server | str | None]):
                 raise ValidationError("Choose a Java version.")
             java_major = validate_java_major(int(str(java_value)))
 
-            flags = parse_launch_flags(self.query_one("#edit-flags", TextArea).text)
+            gc_value = self.query_one("#edit-gc", Select).value
+            if gc_value is Select.BLANK:
+                raise ValidationError("Choose a GC collector.")
+            gc_collector = validate_gc_collector(str(gc_value))
+
+            flags = ensure_gc_flags(
+                parse_launch_flags(self.query_one("#edit-flags", TextArea).text),
+                gc_collector,
+            )
 
             properties = self._read_property_inputs()
             port = self.server.port
@@ -292,6 +341,7 @@ class EditServerScreen(Screen[Server | str | None]):
             self.server.cpu_cores = cpu_cores
             self.server.java_path = java_path
             self.server.java_major = java_major
+            self.server.gc_collector = gc_collector
             self.server.extra_args = flags
             self.server.port = port
             self.slime.store.save(self.server)

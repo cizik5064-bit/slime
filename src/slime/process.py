@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .errors import ServerError
-from .models import AIKAR_FLAGS, Project, Server
+from .models import Project, Server, ensure_gc_flags
 
 _READY_RE = re.compile(r"(Done \(|Listening on /|Done in |Done \()", re.IGNORECASE)
 _LINE_LIMIT = 3000
@@ -51,6 +51,21 @@ _WORLD_ERROR_RE = re.compile(
     r"|failed to read.{0,40}level",
     re.IGNORECASE,
 )
+#: Arguments consumed by the Minecraft server itself, not by the JVM.
+_SERVER_ARGUMENTS = frozenset(
+    {
+        "nogui",
+        "--nogui",
+        "--safemode",
+        "--forceupgrade",
+        "--erasecache",
+        "--recreateregionfiles",
+    }
+)
+
+
+def _is_server_argument(argument: str) -> bool:
+    return argument.lower() in _SERVER_ARGUMENTS or not argument.startswith("-")
 
 
 def suggested_arguments(line: str) -> list[str]:
@@ -197,6 +212,9 @@ class ServerProcess:
         if self.command_override is not None:
             return list(self.command_override)
         min_memory = self.server.min_memory_mb or self.server.memory_mb
+        flags = ensure_gc_flags(list(self.extra_args), self.server.gc_collector)
+        jvm_flags = [flag for flag in flags if not _is_server_argument(flag)]
+        server_flags = [flag for flag in flags if _is_server_argument(flag)]
         command = [
             str(self.java_path),
             f"-Xms{min_memory}M",
@@ -205,11 +223,11 @@ class ServerProcess:
         ]
         if self.server.cpu_cores is not None:
             command.append(f"-XX:ActiveProcessorCount={self.server.cpu_cores}")
-        command.extend(AIKAR_FLAGS)
+        command.extend(jvm_flags)
         command.extend(["-jar", self.server.jar_file])
         if not self.server.is_proxy:
             command.append("nogui")
-        command.extend(self.extra_args)
+        command.extend(server_flags)
         return command
 
     async def start(self) -> None:

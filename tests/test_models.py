@@ -149,7 +149,8 @@ class TestServer:
         assert server.is_proxy is False
         assert server.kind == "server"
         assert server.created_at
-        assert server.extra_args == []
+        assert server.extra_args == list(AIKAR_FLAGS)
+        assert server.gc_collector == "G1GC"
         assert server.world_reset_suggested is False
 
     def test_round_trip(self) -> None:
@@ -161,6 +162,7 @@ class TestServer:
             java_path=r"C:\Java\bin\java.exe",
             eula_accepted=True,
             extra_args=["-Dfoo=bar"],
+            gc_collector="ZGC",
             recovery_args=["--safeMode"],
         )
         restored = Server.from_dict(server.to_dict())
@@ -179,7 +181,30 @@ class TestServer:
                 "-Dfoo=bar",
             ]
         )
-        assert server.extra_args == ["-Dfoo=bar"]
+        assert server.extra_args == [*AIKAR_FLAGS, "-Dfoo=bar"]
+
+    def test_gc_collector_is_validated_and_round_trips(self) -> None:
+        server = self.make(gc_collector="zgc")
+        assert server.gc_collector == "ZGC"
+        assert Server.from_dict(server.to_dict()).gc_collector == "ZGC"
+        with pytest.raises(ValidationError, match="GC collector"):
+            self.make(gc_collector="magic")
+
+    def test_missing_gc_collector_is_inferred_from_flags(self) -> None:
+        data = self.make(extra_args=["-XX:+UseZGC"]).to_dict()
+        del data["gc_collector"]
+        assert Server.from_dict(data).gc_collector == "ZGC"
+
+    def test_missing_extra_args_use_aikar_defaults(self) -> None:
+        data = self.make().to_dict()
+        del data["extra_args"]
+        assert Server.from_dict(data).extra_args == list(AIKAR_FLAGS)
+
+    def test_old_empty_flags_get_aikar_defaults(self) -> None:
+        data = self.make().to_dict()
+        data["extra_args"] = []
+        del data["gc_collector"]
+        assert Server.from_dict(data).extra_args == list(AIKAR_FLAGS)
 
     def test_world_reset_suggestion_round_trip(self) -> None:
         server = self.make(world_reset_suggested=True)

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
-from slime.tui.screens.server import _colorize_log_line, slime_message
+import pytest
+from textual.widgets import Button
+
+from slime.config import Config
+from slime.models import Server
+from slime.tui.app import SlimeApp
+from slime.tui.screens.server import ServerScreen, _colorize_log_line, slime_message
 
 
 @pytest.mark.parametrize(
@@ -49,3 +55,20 @@ def test_done_word_is_bright_green() -> None:
         and span.style == "bold bright_green"
         for span in text.spans
     )
+
+
+async def test_restart_is_disabled_when_server_is_stopped(tmp_path: Path) -> None:
+    app = SlimeApp(Config(tmp_path / "home"))
+    server = Server(
+        name="survival",
+        project="paper",
+        minecraft_version="1.21.4",
+        build=232,
+        java_major=21,
+    )
+    app.store.save(server)
+
+    async with app.run_test() as pilot:
+        app.push_screen(ServerScreen(app, server))
+        await pilot.pause()
+        assert app.screen.query_one("#restart", Button).disabled is True

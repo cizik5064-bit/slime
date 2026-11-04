@@ -88,7 +88,32 @@ AIKAR_FLAGS: tuple[str, ...] = (
     "-Daikars.new.flags=true",
 )
 
-_AIKAR_FLAG_SET = frozenset(AIKAR_FLAGS)
+#: JVM garbage collectors supported by the editor. The value is the flag Slime
+#: guarantees in the launch command for that collector.
+GC_COLLECTORS: dict[str, str] = {
+    "G1GC": "-XX:+UseG1GC",
+    "ZGC": "-XX:+UseZGC",
+    "Shenandoah": "-XX:+UseShenandoahGC",
+    "Parallel": "-XX:+UseParallelGC",
+    "Serial": "-XX:+UseSerialGC",
+}
+GC_FLAGS = frozenset(GC_COLLECTORS.values())
+#: Aikar's flags that only apply to G1GC and would be invalid for other
+#: collectors.
+G1_ONLY_FLAGS = frozenset(
+    {
+        "-XX:G1NewSizePercent=30",
+        "-XX:G1MaxNewSizePercent=40",
+        "-XX:G1HeapRegionSize=8M",
+        "-XX:G1ReservePercent=20",
+        "-XX:G1HeapWastePercent=5",
+        "-XX:G1MixedGCCountTarget=4",
+        "-XX:InitiatingHeapOccupancyPercent=15",
+        "-XX:G1MixedGCLiveThresholdPercent=90",
+        "-XX:G1RSetUpdatingPauseTimePercent=5",
+        "-XX:MaxTenuringThreshold=1",
+    }
+)
 #: Arguments Slime adds automatically; they must never be stored in extra_args.
 _MANAGED_FLAGS = frozenset(
     {
@@ -108,9 +133,31 @@ _MANAGED_PREFIXES = (
 )
 
 
+def validate_gc_collector(value: str) -> str:
+    """Return the canonical collector name or raise :class:`ValidationError`."""
+    normalized = str(value).strip().lower()
+    for name in GC_COLLECTORS:
+        if normalized == name.lower():
+            return name
+    choices = ", ".join(GC_COLLECTORS)
+    raise ValidationError(
+        f"Unknown GC collector '{value}'. Supported collectors: {choices}."
+    )
+
+
+def ensure_gc_flags(flags: list[str], collector: str) -> list[str]:
+    """Return launch flags adapted to the selected garbage collector."""
+    name = validate_gc_collector(collector)
+    gc_flag = GC_COLLECTORS[name]
+    result = [flag for flag in flags if flag not in GC_FLAGS or flag == gc_flag]
+    if name != "G1GC":
+        result = [flag for flag in result if flag not in G1_ONLY_FLAGS]
+    if gc_flag not in result:
+        result.insert(0, gc_flag)
+    return result
+
+
 def _is_managed_argument(argument: str) -> bool:
-    if argument in _AIKAR_FLAG_SET:
-        return True
     if argument.lower() in _MANAGED_FLAGS:
         return True
     return argument.startswith(_MANAGED_PREFIXES)
@@ -322,7 +369,8 @@ class Server:
     java_path: str | None = None
     eula_accepted: bool = False
     jar_file: str = "server.jar"
-    extra_args: list[str] = field(default_factory=list)
+    extra_args: list[str] = field(default_factory=lambda: list(AIKAR_FLAGS))
+    gc_collector: str = "G1GC"
     recovery_args: list[str] = field(default_factory=list)
     world_reset_suggested: bool = False
     created_at: str = field(
@@ -357,6 +405,7 @@ class Server:
         self.extra_args = [
             str(arg) for arg in self.extra_args if not _is_managed_argument(str(arg))
         ]
+        self.gc_collector = validate_gc_collector(self.gc_collector)
         if not isinstance(self.recovery_args, list):
             raise ValidationError("recovery_args must be a list of strings.")
         self.recovery_args = [str(arg) for arg in self.recovery_args]
@@ -386,6 +435,7 @@ class Server:
             "eula_accepted": self.eula_accepted,
             "jar_file": self.jar_file,
             "extra_args": list(self.extra_args),
+            "gc_collector": self.gc_collector,
             "recovery_args": list(self.recovery_args),
             "world_reset_suggested": self.world_reset_suggested,
             "created_at": self.created_at,
@@ -432,11 +482,25 @@ class Server:
 
         extra_args = data.get("extra_args")
         if extra_args is None:
-            extra_args = []
+            extra_args = list(AIKAR_FLAGS)
         elif not isinstance(extra_args, list):
             raise ValidationError(
                 f"Server '{name}' metadata field 'extra_args' must be a list of strings."
             )
+        extra_arg_values = [str(arg) for arg in extra_args]
+        raw_gc_collector = data.get("gc_collector")
+        if raw_gc_collector is None and not extra_arg_values:
+            # Servers saved by 1.5.0 hid Aikar's flags from the editor, so
+            # their extra_args are empty. Give them the new visible defaults.
+            extra_arg_values = list(AIKAR_FLAGS)
+
+        gc_collector = raw_gc_collector
+        if gc_collector is None:
+            gc_collector = "G1GC"
+            for collector_name, flag in GC_COLLECTORS.items():
+                if flag in extra_arg_values:
+                    gc_collector = collector_name
+                    break
 
         recovery_args = data.get("recovery_args")
         if recovery_args is None:
@@ -474,7 +538,8 @@ class Server:
             java_path=java_path,
             eula_accepted=bool(data.get("eula_accepted", False)),
             jar_file=str(data.get("jar_file", "server.jar")),
-            extra_args=[str(arg) for arg in extra_args],
+            extra_args=extra_arg_values,
+            gc_collector=str(gc_collector),
             recovery_args=[str(arg) for arg in recovery_args],
             world_reset_suggested=bool(data.get("world_reset_suggested", False)),
             created_at=str(created_at),

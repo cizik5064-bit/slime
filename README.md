@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.5.0.** Core features are implemented and
+> **Status: 1.6.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -68,12 +68,14 @@ Or just run `slime` and use the TUI.
   and records the exact `bin/java` path.
 - **TUI + CLI** - a Textual interface for browsing servers, editing settings,
   watching the console live and sending commands; a Typer CLI for automation.
-- **Server editor** - change the server name, min/max RAM, custom launch flags,
-  CPU core allocation, Java path/version, and every `server.properties` value
-  from one screen. Slime manages RAM, CPU cores, `nogui`, Aikar's flags and
-  recovery flags automatically, so the flags box only shows your own additions.
-  Destructive actions live in a separate **Dangerous** tab: **Reset world** and
-  **Delete server** both require holding Enter for five seconds.
+- **Server editor** - change the server name, min/max RAM, launch flags,
+  garbage collector (G1GC, ZGC, Shenandoah, Parallel or Serial), CPU core
+  allocation, Java path/version, and every `server.properties` value from one
+  screen. New servers start with Aikar's performant flags in the editable
+  **Launch flags** box; RAM, CPU cores, `nogui` and recovery flags stay managed
+  by Slime. Destructive actions live in a separate **Dangerous** tab:
+  **Reset world** and **Delete server** both require holding Enter for five
+  seconds.
 - **Safer crash recovery** - servers that exit with an exception or a non-zero
   status are reported as **crashed**. If the crash points to a damaged world
   (`Overworld settings missing`, a corrupt `level.dat`, or a similar error),
@@ -161,18 +163,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.5.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.5.0-windows-x64.exe --version
-.\slime-1.5.0-windows-x64.exe
+Get-FileHash .\slime-1.6.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.6.0-windows-x64.exe --version
+.\slime-1.6.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.5.0-linux-x64.sha256
-chmod +x slime-1.5.0-linux-x64
-./slime-1.5.0-linux-x64 --version
-./slime-1.5.0-linux-x64
+sha256sum -c slime-1.6.0-linux-x64.sha256
+chmod +x slime-1.6.0-linux-x64
+./slime-1.6.0-linux-x64 --version
+./slime-1.6.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.

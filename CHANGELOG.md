@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-11-05
+
+### Changed
+
+- Raised test coverage from 72% to 81% (397 tests). Added headless TUI tests
+  for the create-server wizard, the Java manager, the Doctor screen and
+  dashboard navigation, plus CLI tests for versions, builds, server info,
+  deletion, `server run` preconditions and non-interactive help. No runtime
+  behavior changed.
+
 ## [1.8.0] - 2026-11-05
 
 ### Added
@@ -298,7 +308,8 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/cizik5064-bit/slime/releases/tag/v1.8.1
 [1.8.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.8.0
 [1.7.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.7.0
 [1.6.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.6.0

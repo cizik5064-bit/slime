@@ -458,3 +458,215 @@ def test_server_cmd_requires_rcon_to_be_enabled(
 
     assert result.exit_code == 1
     assert "RCON is not enabled" in result.output
+
+# ---------------------------------------------------------------------------
+# Additional command coverage
+# ---------------------------------------------------------------------------
+
+
+def _prepare_server(home: Path, name: str = "survival", **overrides: object) -> Server:
+    from slime.config import Config
+    from slime.store import ServerStore
+
+    values: dict[str, object] = {
+        "name": name,
+        "project": "paper",
+        "minecraft_version": "1.21.4",
+        "build": 42,
+        "java_major": 21,
+        "eula_accepted": True,
+    }
+    values.update(overrides)
+    server = Server(**values)  # type: ignore[arg-type]
+    ServerStore(Config(home)).save(server)
+    return server
+
+
+def test_server_list_text_and_server_path(runner: CliRunner, home: Path) -> None:
+    _prepare_server(home)
+    result = runner.invoke(app, ["server", "list"])
+    assert result.exit_code == 0, result.output
+    assert "survival" in result.output
+
+    result = runner.invoke(app, ["server", "path", "survival"])
+    assert result.exit_code == 0, result.output
+    assert "survival" in result.output
+
+
+def test_config_show_text(runner: CliRunner, home: Path) -> None:
+    result = runner.invoke(app, ["config", "show"])
+    assert result.exit_code == 0, result.output
+    assert "default_memory_mb" in result.output
+
+
+def test_server_versions_text_and_json(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("slime.cli.ProjectCatalog", lambda *a, **k: FakePaperMC())
+
+    result = runner.invoke(app, ["server", "versions", "--limit", "1"])
+    assert result.exit_code == 0, result.output
+    assert "1.21.4" in result.output
+    assert "more; use --limit" in result.output
+
+    result = runner.invoke(app, ["server", "versions", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == ["1.21.4", "1.20.6"]
+
+
+def test_server_builds_text_and_json(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("slime.cli.ProjectCatalog", lambda *a, **k: FakePaperMC())
+
+    result = runner.invoke(app, ["server", "builds", "1.21.4"])
+    assert result.exit_code == 0, result.output
+    assert "paper-1.21.4-1.jar" in result.output
+    assert "0.0 MiB" in result.output
+
+    result = runner.invoke(
+        app, ["server", "builds", "1.21.4", "--channel", "STABLE", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert [item["build"] for item in payload] == [2, 1]
+
+
+def test_server_info_json_includes_checks(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.checks import CheckResult, CheckStatus
+
+    _prepare_server(home)
+
+    def fake_checks(*args: object, **kwargs: object) -> list[CheckResult]:
+        return [CheckResult("files", "Files", CheckStatus.OK, "present")]
+
+    monkeypatch.setattr("slime.cli.run_checks", fake_checks)
+
+    result = runner.invoke(app, ["server", "info", "survival", "--checks", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["name"] == "survival"
+    assert payload["checks"][0]["id"] == "files"
+
+
+def test_server_info_text_reports_missing_java(
+    runner: CliRunner, home: Path
+) -> None:
+    _prepare_server(home)
+    result = runner.invoke(app, ["server", "info", "survival"])
+    assert result.exit_code == 0, result.output
+    assert "not installed" in result.output
+    assert "EULA" in result.output
+
+
+def test_doctor_text_output(runner: CliRunner, home: Path) -> None:
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code in {0, 2}, result.output
+    assert "Environment check" in result.output
+    assert "error(s)" in result.output
+
+
+def test_server_delete_requires_confirmation_non_interactive(
+    runner: CliRunner, home: Path
+) -> None:
+    _prepare_server(home)
+    result = runner.invoke(app, ["server", "delete", "survival"])
+    assert result.exit_code == 1
+    assert "Refusing to delete" in result.output
+
+
+def test_server_delete_with_yes_removes_the_directory(
+    runner: CliRunner, home: Path
+) -> None:
+    _prepare_server(home)
+    result = runner.invoke(app, ["server", "delete", "survival", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "Deleted" in result.output
+    assert not (home / "servers" / "survival").exists()
+
+
+def test_server_delete_keep_files_unregisters(
+    runner: CliRunner, home: Path
+) -> None:
+    _prepare_server(home)
+    result = runner.invoke(
+        app, ["server", "delete", "survival", "--yes", "--keep-files"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Unregistered" in result.output
+    assert (home / "servers" / "survival").is_dir()
+
+
+def test_server_delete_refuses_a_running_server(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.store import ServerStore
+
+    _prepare_server(home)
+    monkeypatch.setattr(ServerStore, "is_running", lambda self, name: (True, 42))
+    result = runner.invoke(app, ["server", "delete", "survival", "--yes"])
+    assert result.exit_code == 1
+    assert "is running" in result.output
+
+
+def test_server_run_refuses_a_running_server(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.store import ServerStore
+
+    _prepare_server(home)
+    monkeypatch.setattr(ServerStore, "is_running", lambda self, name: (True, 42))
+    result = runner.invoke(app, ["server", "run", "survival"])
+    assert result.exit_code == 1
+    assert "already running" in result.output
+    assert "server stop survival" in result.output
+
+
+def test_server_run_reports_a_missing_jar(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.models import JavaInstall
+
+    _prepare_server(home)
+    monkeypatch.setattr(
+        "slime.cli.JavaManager.require_for",
+        lambda self, server: JavaInstall(
+            major=21,
+            version="21",
+            path="java",
+            home="home",
+        ),
+    )
+    result = runner.invoke(app, ["server", "run", "survival"])
+    assert result.exit_code == 1
+    assert "jar is missing" in result.output
+
+
+def test_server_run_requires_eula(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.models import JavaInstall
+
+    _prepare_server(home, eula_accepted=False)
+    monkeypatch.setattr(
+        "slime.cli.JavaManager.require_for",
+        lambda self, server: JavaInstall(
+            major=21,
+            version="21",
+            path="java",
+            home="home",
+        ),
+    )
+    result = runner.invoke(app, ["server", "run", "survival"])
+    assert result.exit_code == 1
+    assert "EULA has not been accepted" in result.output
+
+
+def test_no_subcommand_without_a_tty_prints_help(
+    runner: CliRunner, home: Path
+) -> None:
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0, result.output
+    assert "Usage" in result.output

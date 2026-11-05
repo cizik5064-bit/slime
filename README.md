@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.8.0.** Core features are implemented and
+> **Status: 1.8.1.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -176,18 +176,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.8.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.8.0-windows-x64.exe --version
-.\slime-1.8.0-windows-x64.exe
+Get-FileHash .\slime-1.8.1-windows-x64.exe -Algorithm SHA256
+.\slime-1.8.1-windows-x64.exe --version
+.\slime-1.8.1-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.8.0-linux-x64.sha256
-chmod +x slime-1.8.0-linux-x64
-./slime-1.8.0-linux-x64 --version
-./slime-1.8.0-linux-x64
+sha256sum -c slime-1.8.1-linux-x64.sha256
+chmod +x slime-1.8.1-linux-x64
+./slime-1.8.1-linux-x64 --version
+./slime-1.8.1-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.

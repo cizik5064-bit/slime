@@ -277,7 +277,8 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.7.0
 [1.6.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.6.0
 [1.5.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.5.0
 [1.4.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.4.0

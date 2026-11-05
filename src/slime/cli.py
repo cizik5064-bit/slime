@@ -32,6 +32,7 @@ from . import APP_NAME, PROJECT_URL, __version__
 from .api.catalog import ProjectCatalog
 from .api.papermc import PaperMCClient
 from .api.purpur import PurpurClient
+from .backup import BackupInfo, BackupManager
 from .checks import CheckResult, CheckStatus, has_failures, run_checks, summarize
 from .config import Config, Settings
 from .errors import JavaError, ServerError, SlimeError
@@ -68,6 +69,7 @@ class AppContext:
         self._catalog: ProjectCatalog | None = None
         self._java: JavaManager | None = None
         self._provisioner: Provisioner | None = None
+        self._backups: BackupManager | None = None
 
     @property
     def store(self) -> ServerStore:
@@ -106,6 +108,12 @@ class AppContext:
                 self.config, self.store, self.catalog, self.java_manager
             )
         return self._provisioner
+
+    @property
+    def backups(self) -> BackupManager:
+        if self._backups is None:
+            self._backups = BackupManager(self.config, self.store)
+        return self._backups
 
 
 def _ctx(context: typer.Context) -> AppContext:
@@ -166,9 +174,15 @@ config_app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+backup_app = typer.Typer(
+    help="Create, restore and delete compressed server backups.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 app.add_typer(server_app, name="server")
 app.add_typer(java_app, name="java")
 app.add_typer(config_app, name="config")
+app.add_typer(backup_app, name="backup")
 
 
 @app.callback()
@@ -1034,6 +1048,190 @@ def server_builds(
 
 
 # ---------------------------------------------------------------------------
+# Backup commands
+# ---------------------------------------------------------------------------
+
+
+def _print_backup_table(backups: list[BackupInfo], *, show_server: bool = False) -> None:
+    table = Table(title="Backups", header_style="bold")
+    if show_server:
+        table.add_column("Server", style="bold")
+    table.add_column("Backup", style="bold cyan")
+    table.add_column("Created (UTC)")
+    table.add_column("Size", justify="right")
+    table.add_column("Version")
+    table.add_column("Files", justify="right")
+    table.add_column("Note")
+    for info in backups:
+        row = [info.identifier, info.created_label, info.size_label]
+        if show_server:
+            row.insert(0, info.server)
+        table.add_row(
+            *row,
+            escape(info.minecraft_version or "-"),
+            str(info.files or "-"),
+            escape(info.note),
+        )
+    console.print(table)
+
+
+@backup_app.command("create")
+def backup_create(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    note: Annotated[
+        str,
+        typer.Option("--note", "-n", help="Optional note stored with the backup."),
+    ] = "",
+) -> None:
+    """Create a maximally compressed .7z backup of a stopped server."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total} files"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Compressing…", total=None)
+
+            def on_progress(relative: str, done: int, total: int) -> None:
+                progress.update(
+                    task,
+                    description=f"Compressing {relative}",
+                    completed=done,
+                    total=total,
+                )
+
+            info = app_context.backups.create(server, note=note, progress=on_progress)
+
+    note_line = f"Note:    {escape(info.note)}\n" if info.note else ""
+    console.print(
+        Panel(
+            f"[bold green]Backup created[/bold green]\n\n"
+            f"Name:    [cyan]{escape(info.identifier)}[/cyan]\n"
+            f"Server:  {escape(info.server)}\n"
+            f"Size:    {info.size_label} ({info.files} files)\n"
+            f"{note_line}"
+            f"Archive: {escape(str(info.path))}",
+            title="Backup",
+            border_style="green",
+        )
+    )
+
+
+@backup_app.command("list")
+def backup_list(
+    context: typer.Context,
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Server name (default: all servers)."),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """List available backups, newest first."""
+    app_context = _ctx(context)
+    with _errors():
+        if name is not None:
+            app_context.store.get(name)
+            backups = app_context.backups.list(name)
+        else:
+            backups = app_context.backups.list_all()
+
+    if as_json:
+        console.print_json(data=[info.to_dict() for info in backups])
+        return
+    if not backups:
+        console.print("[dim]No backups yet.[/dim]")
+        if name is not None:
+            console.print(f"Create one with: [cyan]slime backup create {name}[/cyan]")
+        return
+    _print_backup_table(backups, show_server=name is None)
+
+
+@backup_app.command("delete")
+def backup_delete(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    backup: Annotated[str, typer.Argument(help="Backup id or file name.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")] = False,
+) -> None:
+    """Delete one backup archive."""
+    app_context = _ctx(context)
+    with _errors():
+        app_context.store.get(name)
+        info = app_context.backups.resolve(name, backup)
+        if not yes:
+            if not sys.stdin.isatty():
+                raise ServerError(
+                    "Refusing to delete a backup without confirmation.",
+                    hint="Pass --yes to delete non-interactively.",
+                )
+            if not Confirm.ask(
+                f"Delete backup {info.identifier} ({info.size_label})?", default=False
+            ):
+                console.print("Cancelled.")
+                raise typer.Exit()
+        app_context.backups.delete(name, info.identifier)
+    console.print(f"[green]Deleted[/green] backup {escape(info.identifier)}.")
+
+
+@backup_app.command("restore")
+def backup_restore(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    backup: Annotated[str, typer.Argument(help="Backup id or file name.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")] = False,
+) -> None:
+    """Restore a backup into a stopped server."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        info = app_context.backups.resolve(name, backup)
+        if not yes:
+            if not sys.stdin.isatty():
+                raise ServerError(
+                    "Refusing to restore without confirmation.",
+                    hint="Pass --yes to restore non-interactively.",
+                )
+            if not Confirm.ask(
+                f"Restore backup {info.identifier} into '{server.name}'?\n"
+                "Worlds, plugins and configs from the backup will replace the "
+                "current ones. This cannot be undone.",
+                default=False,
+            ):
+                console.print("Cancelled.")
+                raise typer.Exit()
+        restored = app_context.backups.restore(server, info.identifier)
+    console.print(
+        f"[green]Restored[/green] {restored} file(s) from {escape(info.identifier)} "
+        f"into '{escape(server.name)}'."
+    )
+    console.print("Start the server when you are ready: " + f"[cyan]slime server run {server.name}[/cyan]")
+
+
+@backup_app.command("path")
+def backup_path(
+    context: typer.Context,
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Server name (default: the backups root)."),
+    ] = None,
+) -> None:
+    """Print the backup directory (useful in scripts)."""
+    app_context = _ctx(context)
+    with _errors():
+        if name is not None:
+            app_context.store.get(name)
+            console.print(str(app_context.backups.directory(name)))
+        else:
+            console.print(str(app_context.backups.root))
+
+
+# ---------------------------------------------------------------------------
 # Java commands
 # ---------------------------------------------------------------------------
 
@@ -1271,6 +1469,7 @@ def config_show(
                     "java": str(paths.java),
                     "cache": str(paths.cache),
                     "logs": str(paths.logs),
+                    "backups": str(paths.backups),
                     "config": str(paths.config_file),
                 },
             }
@@ -1293,6 +1492,7 @@ def config_show(
         ("Java", paths.java),
         ("Cache", paths.cache),
         ("Logs", paths.logs),
+        ("Backups", paths.backups),
         ("Config", paths.config_file),
     ):
         paths_table.add_row(label, escape(str(value)))

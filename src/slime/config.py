@@ -6,8 +6,9 @@ Everything Slime owns lives in ``~/.slime`` by default::
       config.toml
       servers/<name>/        # the working directory of each Minecraft server
       java/<runtime>/        # Temurin JDKs installed by Slime
-      cache/                 # downloaded archives
+      cache/                 # downloaded archives and temporary files
       logs/                  # Slime and server console logs
+      backups/<name>/        # .7z backups created for each server
 
 Set ``SLIME_HOME`` (or pass ``--home``) to use a different location.
 """
@@ -68,6 +69,7 @@ class Paths:
     java: Path
     cache: Path
     logs: Path
+    backups: Path
     config_file: Path
 
     @classmethod
@@ -79,11 +81,19 @@ class Paths:
             java=home / "java",
             cache=home / "cache",
             logs=home / "logs",
+            backups=home / "backups",
             config_file=home / CONFIG_FILE_NAME,
         )
 
     def ensure(self) -> None:
-        for directory in (self.home, self.servers, self.java, self.cache, self.logs):
+        for directory in (
+            self.home,
+            self.servers,
+            self.java,
+            self.cache,
+            self.logs,
+            self.backups,
+        ):
             directory.mkdir(parents=True, exist_ok=True)
 
 

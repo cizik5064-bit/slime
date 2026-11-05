@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.6.0.** Core features are implemented and
+> **Status: 1.7.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -85,6 +85,12 @@ Or just run `slime` and use the TUI.
   servers. A foreground console streams logs and accepts commands via stdin.
   A deliberate stop or kill stays **stopped**, and the console shows Slime's
   own actions (`[slime] Stopping server...`, `[slime] Server stopped.`).
+- **Backups and restore** - create maximally compressed `.7z` snapshots of a
+  stopped server (worlds, `plugins/`, `config/`, `mods/`, root configs and
+  `logs/latest.log`), list them with sizes and notes, restore them in place and
+  delete old archives. Available from `slime backup ...` and the **Backups**
+  button on the server screen. The server jar and Slime metadata are never
+  included.
 - **Environment checks** - Python, OS, disk space, available RAM, port
   conflicts, EULA status, server jar, `server.properties` consistency and Java
   availability.
@@ -163,18 +169,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.6.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.6.0-windows-x64.exe --version
-.\slime-1.6.0-windows-x64.exe
+Get-FileHash .\slime-1.7.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.7.0-windows-x64.exe --version
+.\slime-1.7.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.6.0-linux-x64.sha256
-chmod +x slime-1.6.0-linux-x64
-./slime-1.6.0-linux-x64 --version
-./slime-1.6.0-linux-x64
+sha256sum -c slime-1.7.0-linux-x64.sha256
+chmod +x slime-1.7.0-linux-x64
+./slime-1.7.0-linux-x64 --version
+./slime-1.7.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.
@@ -235,6 +241,8 @@ Useful follow-ups:
 slime server list
 slime server info survival --checks
 slime doctor
+slime backup create survival --note "before a plugin upgrade"
+slime backup list survival
 slime server versions --project paper
 slime server builds 1.21.4 --project paper
 ```
@@ -268,9 +276,11 @@ slime
 | `Esc` | Back |
 
 The server screen shows live console output, a command input, and Start / Stop /
-Kill / Restart / Edit / Back buttons. **Edit** opens the server editor with
-General, `server.properties` and Dangerous tabs. **Delete** and **Reset world**
-live in **Dangerous** and require holding Enter for five seconds. Servers started
+Kill / Restart / Backups / Edit / Back buttons. **Backups** lists snapshots and
+can create, restore or delete them; creating and restoring require a stopped
+server. **Edit** opens the server editor with General, `server.properties` and
+Dangerous tabs. **Delete** and **Reset world** live in **Dangerous** and require
+holding Enter for five seconds. Servers started
 from the TUI keep running while you navigate between screens, and are stopped
 gracefully when you quit Slime.
 
@@ -302,6 +312,22 @@ slime server path NAME
 slime server versions [--project PROJECT] [--limit N] [--json]
 slime server builds VERSION [--project PROJECT] [--channel CHANNEL] [--limit N] [--json]
 ```
+
+### Backups
+
+```text
+slime backup create NAME [--note TEXT]
+slime backup list [NAME] [--json]
+slime backup restore NAME BACKUP [--yes]
+slime backup delete NAME BACKUP [--yes]
+slime backup path [NAME]
+```
+
+`BACKUP` is the archive id shown by `slime backup list` (a unique prefix is
+enough). Create and restore require the server to be stopped so world files are
+consistent. Restore replaces worlds, `plugins/`, `config/` and `mods/`, and
+overwrites root configuration files; the jar and `slime.json` are preserved.
+Deleting a backup removes the archive and its metadata sidecar only.
 
 ### Java
 
@@ -372,6 +398,10 @@ Default home: `~/.slime` (override with `SLIME_HOME` or `--home`).
       bin/java.exe
       slime-java.json
   cache/                 # temporary downloads
+  backups/
+    <name>/
+      <timestamp>.7z     # compressed server snapshot
+      <timestamp>.json   # backup metadata (note, version, file count)
   logs/
     slime.log
     <server>.log         # full console log per server
@@ -473,7 +503,7 @@ services.
 - [x] Full test suite and CI on Windows + Linux
 - [x] First public release (1.0.0)
 - [x] Packaging on PyPI (`slime-mc`)
-- [ ] Backups and restore
+- [x] Backups and restore
 - [ ] Plugin/mod browser (Modrinth / Hangar)
 - [ ] RCON console and cross-process server control
 - [ ] Legacy Windows 7/8.1 build

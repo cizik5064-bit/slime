@@ -210,3 +210,127 @@ def test_server_create_requires_project_non_interactive(
     result = runner.invoke(app, ["server", "create", "survival"])
     assert result.exit_code == 1
     assert "Missing --project" in result.output
+
+def _prepare_backup_server(home: Path) -> tuple[Path, str]:
+    from slime.config import Config
+    from slime.store import ServerStore
+
+    store = ServerStore(Config(home))
+    store.save(
+        Server(
+            name="survival",
+            project="paper",
+            minecraft_version="1.21.4",
+            build=42,
+            java_major=21,
+        )
+    )
+    directory = store.path("survival")
+    (directory / "world" / "region").mkdir(parents=True)
+    (directory / "world" / "region" / "r.0.0.mca").write_text(
+        "world", encoding="utf-8"
+    )
+    (directory / "server.properties").write_text(
+        "level-name=world\n", encoding="utf-8"
+    )
+    return directory, "survival"
+
+
+def test_backup_create_list_path_and_delete(runner: CliRunner, home: Path) -> None:
+    directory, name = _prepare_backup_server(home)
+
+    result = runner.invoke(app, ["backup", "create", name, "--note", "before"])
+    assert result.exit_code == 0, result.output
+    assert "Backup created" in result.output
+    assert "before" in result.output
+
+    result = runner.invoke(app, ["backup", "list", name, "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload) == 1
+    info = payload[0]
+    assert info["server"] == name
+    assert info["note"] == "before"
+    assert info["files"] == 2
+    assert Path(info["path"]).is_file()
+
+    result = runner.invoke(app, ["backup", "path", name])
+    assert result.exit_code == 0
+    assert str(home / "backups" / name) in result.output.replace("\n", "")
+
+    result = runner.invoke(app, ["backup", "path"])
+    assert result.exit_code == 0
+    assert str(home / "backups") in result.output.replace("\n", "")
+
+    result = runner.invoke(app, ["backup", "list", name])
+    assert result.exit_code == 0
+    assert info["identifier"] in result.output
+
+    result = runner.invoke(
+        app, ["backup", "delete", name, info["identifier"], "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Deleted" in result.output
+    assert not Path(info["path"]).exists()
+    assert (directory / "world" / "region" / "r.0.0.mca").is_file()
+
+
+def test_backup_list_empty_and_unknown_server(
+    runner: CliRunner, home: Path
+) -> None:
+    result = runner.invoke(app, ["backup", "list"])
+    assert result.exit_code == 0
+    assert "No backups yet" in result.output
+
+    result = runner.invoke(app, ["backup", "list", "missing"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_backup_restore_round_trip(runner: CliRunner, home: Path) -> None:
+    directory, name = _prepare_backup_server(home)
+    world_file = directory / "world" / "region" / "r.0.0.mca"
+
+    result = runner.invoke(app, ["backup", "create", name])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(
+        runner.invoke(app, ["backup", "list", name, "--json"]).output
+    )
+    identifier = payload[0]["identifier"]
+
+    world_file.write_text("broken", encoding="utf-8")
+    (directory / "world" / "region" / "stale.mca").write_text(
+        "stale", encoding="utf-8"
+    )
+
+    result = runner.invoke(
+        app, ["backup", "restore", name, identifier, "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Restored" in result.output
+    assert world_file.read_text(encoding="utf-8") == "world"
+    assert not (directory / "world" / "region" / "stale.mca").exists()
+
+
+def test_backup_delete_requires_confirmation_non_interactive(
+    runner: CliRunner, home: Path
+) -> None:
+    _, name = _prepare_backup_server(home)
+    assert runner.invoke(app, ["backup", "create", name]).exit_code == 0
+    payload = json.loads(
+        runner.invoke(app, ["backup", "list", name, "--json"]).output
+    )
+
+    result = runner.invoke(
+        app, ["backup", "delete", name, payload[0]["identifier"]]
+    )
+    assert result.exit_code == 1
+    assert "--yes" in result.output
+    assert Path(payload[0]["path"]).is_file()
+
+
+def test_config_show_includes_backups_path(runner: CliRunner, home: Path) -> None:
+    result = runner.invoke(app, ["config", "show", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert Path(payload["paths"]["backups"]) == home / "backups"

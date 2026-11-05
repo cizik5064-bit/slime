@@ -208,6 +208,46 @@ Footer {
     color: $text-muted;
 }
 
+/* ---------------------------------------------------------------- backups */
+
+#backup-body {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#backup-title {
+    height: 1;
+    text-style: bold;
+    color: $accent;
+}
+
+#backup-hint {
+    height: auto;
+    min-height: 1;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#backup-table {
+    height: 1fr;
+    border: round $primary;
+}
+
+#backup-status {
+    height: auto;
+    min-height: 1;
+    color: $text-muted;
+}
+
+#backup-buttons {
+    height: auto;
+    padding: 1 0;
+}
+
+#backup-buttons Button {
+    margin-right: 1;
+}
+
 /* ----------------------------------------------------------------- modals */
 
 CreateServerScreen,

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-05
+
+### Added
+
+- **Server backups and restore.** `slime backup create NAME` writes a
+  maximally compressed `.7z` snapshot of a stopped server: world folders,
+  `plugins/`, `config/`, `mods/`, root configuration files and
+  `logs/latest.log`. The jar and Slime metadata are excluded. Backups are
+  stored in `~/.slime/backups/<name>/` with a JSON sidecar containing the note,
+  Minecraft version and file count.
+- `slime backup list [NAME] [--json]`, `slime backup restore NAME BACKUP`,
+  `slime backup delete NAME BACKUP`, and `slime backup path [NAME]`.
+- A **Backups** screen in the TUI lists snapshots with dates, sizes, versions,
+  file counts and notes, and can create, restore and delete them. Restore and
+  delete require a hold-Enter confirmation; create/restore are disabled while
+  the server is running.
+- Restore replaces whole content directories so stale plugins or region files
+  cannot survive, validates archive members against path traversal, and leaves
+  `server.jar` and `slime.json` untouched.
+- Added the `py7zr` dependency and `~/.slime/backups/` to the managed paths.
+
 ## [1.6.0] - 2026-11-04
 
 ### Added

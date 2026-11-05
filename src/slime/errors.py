@@ -44,5 +44,9 @@ class ServerError(SlimeError):
     """A server is missing, already running, or cannot be started."""
 
 
+class BackupError(SlimeError):
+    """A backup could not be created, read, restored, or deleted."""
+
+
 class ValidationError(SlimeError):
     """A user-supplied value is invalid."""

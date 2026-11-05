@@ -18,6 +18,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Static
 from ...errors import SlimeError
 from ...models import Server
 from ...process import ServerState
+from .backup import BackupScreen
 from .confirm import ConfirmScreen, HoldConfirmScreen
 from .edit import EditServerScreen
 
@@ -119,6 +120,7 @@ class ServerScreen(Screen):
                 yield Button("Start", id="toggle", variant="success")
                 yield Button("Kill", id="kill", variant="error")
                 yield Button("Restart", id="restart", variant="primary")
+                yield Button("Backups", id="backups")
                 yield Button("Edit", id="edit")
                 yield Button("Back", id="back")
             yield RichLog(
@@ -227,6 +229,8 @@ class ServerScreen(Screen):
             await self.restart_server()
         elif button_id == "edit":
             self.open_editor()
+        elif button_id == "backups":
+            self.open_backups()
         elif button_id == "back":
             self.action_back()
 
@@ -349,6 +353,9 @@ class ServerScreen(Screen):
             EditServerScreen(self.slime, self.server),
             self._after_edit,
         )
+
+    def open_backups(self) -> None:
+        self.slime.push_screen(BackupScreen(self.slime, self.server))
 
     def _after_edit(self, result: Server | str | None) -> None:
         if result == "deleted":

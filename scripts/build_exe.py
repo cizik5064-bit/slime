@@ -77,6 +77,7 @@ def main() -> int:
         "--follow-imports",
         "--include-package=slime",
         "--include-package=textual",
+        "--include-package=py7zr",
         "--include-package-data=slime",
         f"--output-dir={DIST}",
         f"--output-filename={executable_name}",

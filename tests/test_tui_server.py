@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from textual.widgets import Button
+from textual.widgets import Button, Input
 
 from slime.config import Config
 from slime.models import Server
@@ -72,3 +72,91 @@ async def test_restart_is_disabled_when_server_is_stopped(tmp_path: Path) -> Non
         app.push_screen(ServerScreen(app, server))
         await pilot.pause()
         assert app.screen.query_one("#restart", Button).disabled is True
+
+async def test_external_server_uses_rcon_for_commands_and_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = SlimeApp(Config(tmp_path / "home"))
+    server = Server(
+        name="survival",
+        project="paper",
+        minecraft_version="1.21.4",
+        build=232,
+        java_major=21,
+        port=25565,
+    )
+    app.store.save(server)
+    (app.store.path(server.name) / "server.properties").write_text(
+        "enable-rcon=true\nrcon.port=25575\nrcon.password=secret\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app.store, "is_running", lambda name: (True, 999))
+    sent: list[str] = []
+
+    async def fake_send(target: Server, command: str) -> str:
+        sent.append(command)
+        return "There are 0 players."
+
+    stopped: list[str] = []
+
+    async def fake_stop(name: str) -> None:
+        stopped.append(name)
+
+    monkeypatch.setattr(app, "send_remote_command", fake_send)
+    monkeypatch.setattr(app, "stop_server", fake_stop)
+
+    async with app.run_test() as pilot:
+        app.push_screen(ServerScreen(app, server))
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, ServerScreen)
+        status = screen.query_one("#server-status").render()
+        assert "RUNNING" in str(status)
+        assert "external" in str(status)
+        assert screen.query_one("#toggle", Button).label.plain == "Stop"
+        assert screen.query_one("#kill", Button).disabled is True
+        assert screen.query_one("#restart", Button).disabled is True
+
+        command_input = screen.query_one("#command", Input)
+        command_input.focus()
+        command_input.value = "list"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.click("#toggle")
+        await pilot.pause()
+
+    assert sent == ["list"]
+    assert stopped == ["survival"]
+
+
+async def test_dashboard_stop_button_stops_the_selected_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = SlimeApp(Config(tmp_path / "home"))
+    app.store.save(
+        Server(
+            name="survival",
+            project="paper",
+            minecraft_version="1.21.4",
+            build=232,
+            java_major=21,
+        )
+    )
+    monkeypatch.setattr(app.store, "is_running", lambda name: (True, 999))
+    stopped: list[str] = []
+
+    async def fake_stop(name: str) -> None:
+        stopped.append(name)
+
+    monkeypatch.setattr(app, "stop_server", fake_stop)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#stop")
+        for _ in range(20):
+            await pilot.pause()
+            if stopped:
+                break
+
+    assert stopped == ["survival"]

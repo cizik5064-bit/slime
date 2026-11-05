@@ -92,6 +92,10 @@ def test_create_paper_server(setup: tuple[Provisioner, ServerStore, FakePaperMC]
     assert "motd=Hello" in (directory / "server.properties").read_text(
         encoding="utf-8"
     )
+    properties = (directory / "server.properties").read_text(encoding="utf-8")
+    assert "enable-rcon=true" in properties
+    assert "rcon.port=25576" in properties
+    assert "rcon.password=" in properties
     assert "eula=true" in (directory / "eula.txt").read_text(encoding="utf-8")
 
 
@@ -113,7 +117,6 @@ def test_create_proxy(setup: tuple[Provisioner, ServerStore, FakePaperMC]) -> No
     assert (directory / "SLIME_PROXY.txt").is_file()
     assert not (directory / "server.properties").exists()
     assert not (directory / "eula.txt").exists()
-
 
 def test_create_purpur_server(
     setup: tuple[Provisioner, ServerStore, FakePaperMC],

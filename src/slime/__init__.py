@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 APP_NAME = "Slime"
 APP_TAGLINE = "Minecraft server manager"
 PROJECT_URL = "https://github.com/cizik5064-bit/slime"

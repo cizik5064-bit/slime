@@ -15,11 +15,12 @@ from ..api.catalog import ProjectCatalog
 from ..api.papermc import PaperMCClient
 from ..api.purpur import PurpurClient
 from ..config import Config
-from ..errors import SlimeError
+from ..errors import ServerError, SlimeError
 from ..java import JavaManager
 from ..models import Server
 from ..process import ServerProcess, ServerState
 from ..provision import Provisioner
+from ..rcon import RconClient, RconError, require_rcon_config, shutdown_command
 from ..store import ServerStore
 from .screens.create import CreateServerScreen
 from .screens.dashboard import DashboardView
@@ -118,6 +119,16 @@ class SlimeApp(App[None]):
         if existing is not None and existing.is_running:
             return existing
 
+        running, pid = self.store.is_running(server.name)
+        if running and (existing is None or pid != existing.pid):
+            raise ServerError(
+                f"Server '{server.name}' is already running (pid {pid}).",
+                hint=(
+                    "It was started by another process. Use Stop to shut it "
+                    "down through RCON, or open its original console."
+                ),
+            )
+
         install = self.java_manager.require_for(server)
         process = ServerProcess(
             server,
@@ -152,9 +163,48 @@ class SlimeApp(App[None]):
 
     async def stop_server(self, name: str) -> None:
         process = self.processes.get(name)
-        if process is not None:
+        if process is not None and process.is_running:
             await process.stop()
+        else:
+            running, _pid = self.store.is_running(name)
+            if running:
+                await self.stop_external(name)
         self.refresh_dashboard()
+
+    async def send_remote_command(self, server: Server, command: str) -> str:
+        """Send one command to a server running in another process."""
+        config = require_rcon_config(self.store.path(server.name))
+
+        def run() -> str:
+            with RconClient(config) as client:
+                return client.command(command)
+
+        return await asyncio.to_thread(run)
+
+    async def stop_external(self, name: str, timeout: float = 30.0) -> None:
+        """Ask a server started by another process to stop through RCON."""
+        server = self.store.get(name)
+        config = require_rcon_config(self.store.path(name))
+
+        def request_stop() -> None:
+            # The server often closes the socket before replying.
+            with RconClient(config) as client, contextlib.suppress(RconError):
+                client.command(shutdown_command(server))
+
+        await asyncio.to_thread(request_stop)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout)
+        while loop.time() < deadline:
+            if not self.store.is_running(name)[0]:
+                return
+            await asyncio.sleep(0.5)
+        raise ServerError(
+            f"Server '{name}' is still running after {timeout:g}s.",
+            hint=(
+                "It may be busy saving the world. Wait a little longer, or "
+                "stop it from the console where it was started."
+            ),
+        )
 
     def _on_process_state(self, name: str, state: ServerState) -> None:
         self.refresh_dashboard()

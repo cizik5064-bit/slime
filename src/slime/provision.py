@@ -21,6 +21,7 @@ from .models import (
     validate_server_name,
 )
 from .properties import ensure_server_properties, write_eula
+from .rcon import ensure_rcon_config
 from .store import ServerStore
 from .utils.downloads import download_file
 
@@ -134,6 +135,7 @@ class Provisioner:
                     port=port,
                     motd=request.motd or f"{name} - powered by Slime",
                 )
+                ensure_rcon_config(directory, port)
                 write_eula(directory / "eula.txt", accepted=server.eula_accepted)
             else:
                 # Proxies generate their own config on first start. Drop a note

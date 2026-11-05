@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-05
+
+### Added
+
+- **RCON console and cross-process server control.** Slime now enables
+  Minecraft's RCON protocol for non-proxy servers and can talk to a server that
+  was started by another Slime instance or a plain `java -jar`.
+- `slime server cmd NAME COMMAND...` sends one command and prints the reply,
+  `slime server console NAME` opens an interactive RCON prompt, and
+  `slime server stop NAME` requests a graceful shutdown and waits for the
+  server process to exit.
+- New servers get `enable-rcon=true`, `rcon.port` = game port + 10 (or 25575)
+  and a random `rcon.password` in `server.properties`. Existing values are
+  preserved, and an explicit `enable-rcon=false` is respected.
+- The TUI detects servers started outside the current Slime process, shows them
+  as **external**, and sends commands through RCON. The server screen's Stop
+  button and the new dashboard **Stop** button work for external servers too;
+  Kill and Restart remain local-only.
+- The Source RCON client handles authentication, multi-packet replies, timeouts
+  and clear errors (`RconError`).
+
 ## [1.7.0] - 2026-11-05
 
 ### Added
@@ -277,7 +298,8 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.8.0
 [1.7.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.7.0
 [1.6.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.6.0
 [1.5.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.5.0

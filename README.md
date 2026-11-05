@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.7.0.** Core features are implemented and
+> **Status: 1.8.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -91,6 +91,13 @@ Or just run `slime` and use the TUI.
   delete old archives. Available from `slime backup ...` and the **Backups**
   button on the server screen. The server jar and Slime metadata are never
   included.
+- **RCON console and cross-process control** - Slime enables Minecraft's RCON
+  protocol for every non-proxy server with a random password and a port derived
+  from the game port. Send commands to a server started by another Slime
+  process (`slime server cmd`), attach an interactive console
+  (`slime server console`) or stop it (`slime server stop`). The TUI recognizes
+  servers started elsewhere, shows them as **external**, and routes commands and
+  **Stop** through RCON. An explicit `enable-rcon=false` is always respected.
 - **Environment checks** - Python, OS, disk space, available RAM, port
   conflicts, EULA status, server jar, `server.properties` consistency and Java
   availability.
@@ -169,18 +176,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.7.0-windows-x64.exe -Algorithm SHA256
-.\slime-1.7.0-windows-x64.exe --version
-.\slime-1.7.0-windows-x64.exe
+Get-FileHash .\slime-1.8.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.8.0-windows-x64.exe --version
+.\slime-1.8.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.7.0-linux-x64.sha256
-chmod +x slime-1.7.0-linux-x64
-./slime-1.7.0-linux-x64 --version
-./slime-1.7.0-linux-x64
+sha256sum -c slime-1.8.0-linux-x64.sha256
+chmod +x slime-1.8.0-linux-x64
+./slime-1.8.0-linux-x64 --version
+./slime-1.8.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.
@@ -243,6 +250,8 @@ slime server info survival --checks
 slime doctor
 slime backup create survival --note "before a plugin upgrade"
 slime backup list survival
+slime server cmd survival list
+slime server console survival
 slime server versions --project paper
 slime server builds 1.21.4 --project paper
 ```
@@ -282,7 +291,11 @@ server. **Edit** opens the server editor with General, `server.properties` and
 Dangerous tabs. **Delete** and **Reset world** live in **Dangerous** and require
 holding Enter for five seconds. Servers started
 from the TUI keep running while you navigate between screens, and are stopped
-gracefully when you quit Slime.
+gracefully when you quit Slime. A server started by another process (another
+Slime instance or a plain `java -jar`) is shown as **external**: the command
+input and the Stop button use RCON, while Kill and Restart stay disabled. The
+dashboard also has a **Stop** button for the selected server, including external
+ones.
 
 ## Commands
 
@@ -309,6 +322,9 @@ slime server run NAME [--memory MB] [--java PATH] [--no-console]
 slime server eula NAME [--accept/--revoke]
 slime server delete NAME [--yes] [--keep-files]
 slime server path NAME
+slime server cmd NAME COMMAND...
+slime server console NAME
+slime server stop NAME [--timeout SECONDS]
 slime server versions [--project PROJECT] [--limit N] [--json]
 slime server builds VERSION [--project PROJECT] [--channel CHANNEL] [--limit N] [--json]
 ```
@@ -328,6 +344,25 @@ enough). Create and restore require the server to be stopped so world files are
 consistent. Restore replaces worlds, `plugins/`, `config/` and `mods/`, and
 overwrites root configuration files; the jar and `slime.json` are preserved.
 Deleting a backup removes the archive and its metadata sidecar only.
+
+### Remote control (RCON)
+
+```text
+slime server cmd NAME COMMAND [ARG ...]
+slime server console NAME
+slime server stop NAME [--timeout SECONDS]
+```
+
+`cmd` sends one command and prints the server's reply, `console` is an
+interactive prompt (type `exit` to leave), and `stop` asks the server to shut
+down and waits for its PID to disappear. All three work across processes, so
+they can control a server started by the TUI or another terminal.
+
+Slime enables RCON automatically for new non-proxy servers and whenever it
+starts one: `enable-rcon=true`, `rcon.port` = game port + 10 (or 25575), and a
+random `rcon.password` stored in `server.properties`. Existing values are kept,
+and an explicit `enable-rcon=false` is never overridden. RCON changes need a
+server restart to take effect.
 
 ### Java
 
@@ -409,7 +444,9 @@ Default home: `~/.slime` (override with `SLIME_HOME` or `--home`).
 
 `server.properties` is only created if it is missing: existing user values are
 preserved. Slime warns when the port in `server.properties` disagrees with the
-port recorded in `slime.json`.
+port recorded in `slime.json`. For non-proxy servers Slime also keeps
+`enable-rcon`, `rcon.port` and `rcon.password` set so another process can use
+`slime server cmd`, `slime server console` and `slime server stop`.
 
 ## Environment checks
 
@@ -505,7 +542,7 @@ services.
 - [x] Packaging on PyPI (`slime-mc`)
 - [x] Backups and restore
 - [ ] Plugin/mod browser (Modrinth / Hangar)
-- [ ] RCON console and cross-process server control
+- [x] RCON console and cross-process server control
 - [ ] Legacy Windows 7/8.1 build
 - [x] Standalone Windows executable via Nuitka
 

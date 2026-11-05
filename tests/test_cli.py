@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from typer.testing import CliRunner
@@ -334,3 +335,126 @@ def test_config_show_includes_backups_path(runner: CliRunner, home: Path) -> Non
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert Path(payload["paths"]["backups"]) == home / "backups"
+
+# ---------------------------------------------------------------------------
+# RCON commands
+# ---------------------------------------------------------------------------
+
+
+class FakeRconClient:
+    instances: ClassVar[list[FakeRconClient]] = []
+
+    def __init__(self, config, *, timeout: float = 5.0) -> None:
+        self.config = config
+        self.timeout = timeout
+        self.commands: list[str] = []
+        FakeRconClient.instances.append(self)
+
+    def __enter__(self) -> FakeRconClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def command(self, command: str) -> str:
+        self.commands.append(command)
+        return f"response to {command}"
+
+
+def _prepare_rcon_server(home: Path) -> Server:
+    from slime.config import Config
+    from slime.store import ServerStore
+
+    store = ServerStore(Config(home))
+    server = Server(
+        name="survival",
+        project="paper",
+        minecraft_version="1.21.4",
+        build=42,
+        java_major=21,
+        port=25565,
+    )
+    store.save(server)
+    (store.path("survival") / "server.properties").write_text(
+        "enable-rcon=true\nrcon.port=25575\nrcon.password=secret\n",
+        encoding="utf-8",
+    )
+    return server
+
+
+def test_server_cmd_sends_a_command(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_rcon_server(home)
+    FakeRconClient.instances = []
+    monkeypatch.setattr("slime.cli.RconClient", FakeRconClient)
+
+    result = runner.invoke(app, ["server", "cmd", "survival", "say", "hello"])
+
+    assert result.exit_code == 0, result.output
+    assert "response to say hello" in result.output
+    assert FakeRconClient.instances[0].commands == ["say hello"]
+
+
+def test_server_console_reads_commands_until_exit(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_rcon_server(home)
+    FakeRconClient.instances = []
+    monkeypatch.setattr("slime.cli.RconClient", FakeRconClient)
+
+    result = runner.invoke(
+        app, ["server", "console", "survival"], input="list\nexit\n"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "response to list" in result.output
+    assert FakeRconClient.instances[0].commands == ["list"]
+
+
+def test_server_stop_uses_rcon_and_waits_for_exit(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.store import ServerStore
+
+    _prepare_rcon_server(home)
+    FakeRconClient.instances = []
+    monkeypatch.setattr("slime.cli.RconClient", FakeRconClient)
+    calls = {"count": 0}
+
+    def fake_is_running(self: ServerStore, name: str) -> tuple[bool, int | None]:
+        calls["count"] += 1
+        return calls["count"] == 1, 4321
+
+    monkeypatch.setattr(ServerStore, "is_running", fake_is_running)
+
+    result = runner.invoke(app, ["server", "stop", "survival"])
+
+    assert result.exit_code == 0, result.output
+    assert "stop" in FakeRconClient.instances[0].commands
+    assert "stopped" in result.output.lower()
+
+
+def test_server_cmd_requires_rcon_to_be_enabled(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.config import Config
+    from slime.store import ServerStore
+
+    store = ServerStore(Config(home))
+    store.save(
+        Server(
+            name="survival",
+            project="paper",
+            minecraft_version="1.21.4",
+            build=42,
+            java_major=21,
+        )
+    )
+    FakeRconClient.instances = []
+    monkeypatch.setattr("slime.cli.RconClient", FakeRconClient)
+
+    result = runner.invoke(app, ["server", "cmd", "survival", "list"])
+
+    assert result.exit_code == 1
+    assert "RCON is not enabled" in result.output

@@ -6,6 +6,7 @@ import asyncio
 import signal
 import sys
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict
@@ -49,6 +50,7 @@ from .models import (
 from .process import ServerProcess, ServerState
 from .properties import write_eula
 from .provision import CreateRequest, Provisioner
+from .rcon import RconClient, RconError, require_rcon_config, shutdown_command
 from .store import ServerStore
 
 console = Console()
@@ -676,7 +678,10 @@ def server_run(
         if running:
             raise ServerError(
                 f"Server '{name}' is already running (pid {pid}).",
-                hint="Stop it from the TUI or from the console where it was started.",
+                hint=(
+                    "Stop it with `slime server stop " + name + "`, from the "
+                    "TUI, or from the console where it was started."
+                ),
             )
         if memory is not None:
             server.memory_mb = validate_memory(memory)
@@ -959,6 +964,110 @@ def server_path(
     with _errors():
         app_context.store.get(name)
     console.print(str(app_context.store.path(name)))
+
+
+@server_app.command("cmd")
+def server_cmd(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    command: Annotated[
+        list[str],
+        typer.Argument(help="Command and its arguments, e.g. say hello."),
+    ],
+) -> None:
+    """Send one command to any running server through RCON.
+
+    This works across processes: the server may have been started by the TUI,
+    by another ``slime server run``, or by a compatible launcher.
+    """
+    text = " ".join(command).strip()
+    if not text:
+        raise typer.BadParameter("A command is required.")
+    app_context = _ctx(context)
+    with _errors():
+        app_context.store.get(name)
+        rcon = require_rcon_config(app_context.store.path(name))
+        with RconClient(rcon) as client:
+            output = client.command(text)
+    if output:
+        console.print(output, markup=False, highlight=False, soft_wrap=True)
+    else:
+        console.print("[dim]No response.[/dim]")
+
+
+@server_app.command("console")
+def server_console(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+) -> None:
+    """Attach an interactive RCON console to a running server."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        rcon = require_rcon_config(app_context.store.path(name))
+        with RconClient(rcon) as client:
+            console.print(
+                f"Connected to [bold]{escape(server.name)}[/bold] at "
+                f"[cyan]{rcon.address}[/cyan]. Type [bold]exit[/bold] to leave."
+            )
+            while True:
+                try:
+                    line = input(f"{server.name}> ")
+                except (EOFError, KeyboardInterrupt):
+                    console.print()
+                    break
+                command = line.strip()
+                if not command:
+                    continue
+                if command.lower() in {"exit", "quit"}:
+                    break
+                try:
+                    output = client.command(command)
+                except RconError as error:
+                    _fail(error)
+                if output:
+                    console.print(output, markup=False, highlight=False, soft_wrap=True)
+
+
+@server_app.command("stop")
+def server_stop(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", "-t", help="Seconds to wait for the server to exit."),
+    ] = 30.0,
+) -> None:
+    """Stop any running server through RCON (works across processes)."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        rcon = require_rcon_config(app_context.store.path(name))
+        running, pid = app_context.store.is_running(name)
+        with RconClient(rcon) as client, suppress(RconError):
+            # A server may close the socket before replying to the shutdown
+            # command, which is expected and not an error.
+            client.command(shutdown_command(server))
+        console.print(f"[green]Stop requested[/green] for '{escape(name)}'.")
+        if not running or pid is None:
+            console.print(
+                "[dim]No PID file was found, so Slime cannot wait for the "
+                "process to exit.[/dim]"
+            )
+            return
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            if not app_context.store.is_running(name)[0]:
+                console.print(f"[green]Server '{escape(name)}' stopped.[/green]")
+                return
+            time.sleep(0.5)
+        raise ServerError(
+            f"Server '{name}' is still running after {timeout:g}s.",
+            hint=(
+                "It may be busy saving the world. Wait a little longer, or "
+                "stop it from the console where it was started."
+            ),
+        )
 
 
 @server_app.command("versions")

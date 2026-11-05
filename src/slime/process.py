@@ -15,6 +15,7 @@ from typing import TextIO
 
 from .errors import ServerError
 from .models import Project, Server, ensure_gc_flags
+from .rcon import RconConfig, ensure_rcon_config
 
 _READY_RE = re.compile(r"(Done \(|Listening on /|Done in |Done \()", re.IGNORECASE)
 _LINE_LIMIT = 3000
@@ -146,6 +147,7 @@ class ServerProcess:
         self._saw_world_error = False
         self._safe_mode_used = False
         self._world_reset_suggested = False
+        self._rcon_config: RconConfig | None = None
 
     # --------------------------------------------------------------- listeners
     def add_line_listener(self, listener: LineListener) -> None:
@@ -202,6 +204,11 @@ class ServerProcess:
         """Whether the last crash looked like a corrupt or unreadable world."""
         return self._world_reset_suggested
 
+    @property
+    def rcon_config(self) -> RconConfig | None:
+        """RCON settings applied to this launch, if RCON is available."""
+        return self._rcon_config
+
     def uptime(self) -> float:
         if self._started_at is None:
             return 0.0
@@ -248,6 +255,15 @@ class ServerProcess:
 
         self.server_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._rcon_config = None
+        if self.command_override is None and not self.server.is_proxy:
+            # RCON lets another Slime process (or a plain CLI) talk to this
+            # server. An explicit enable-rcon=false in server.properties is
+            # preserved, and a failure here must never stop the server.
+            with contextlib.suppress(OSError):
+                self._rcon_config = ensure_rcon_config(
+                    self.server_dir, self.server.port
+                )
         log_path = self.log_dir / f"{self.server.name}.log"
         try:
             self._log_handle = log_path.open("a", encoding="utf-8", errors="replace")

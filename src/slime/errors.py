@@ -48,5 +48,9 @@ class BackupError(SlimeError):
     """A backup could not be created, read, restored, or deleted."""
 
 
+class RconError(ServerError):
+    """An RCON connection, authentication or command failed."""
+
+
 class ValidationError(SlimeError):
     """A user-supplied value is invalid."""

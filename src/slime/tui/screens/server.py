@@ -13,6 +13,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual.timer import Timer
 from textual.widgets import Button, Footer, Header, Input, RichLog, Static
 
 from ...errors import SlimeError
@@ -110,6 +111,8 @@ class ServerScreen(Screen):
         self.server = server
         self._line_listener = self.append_line
         self._state_listener = self.on_process_state
+        self._status_timer: Timer | None = None
+        self._external_noted = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -144,11 +147,14 @@ class ServerScreen(Screen):
                 self.append_line(line)
             process.add_line_listener(self._line_listener)
             process.add_state_listener(self._state_listener)
-            self.update_status(process.state)
-        else:
-            self.update_status(ServerState.STOPPED)
+        self.update_status()
+        # Detect servers started by another Slime process or a plain CLI.
+        self._status_timer = self.set_interval(2.0, self.update_status)
 
     def on_unmount(self) -> None:
+        if self._status_timer is not None:
+            self._status_timer.stop()
+            self._status_timer = None
         process = self.slime.get_process(self.server.name)
         if process is not None:
             process.remove_line_listener(self._line_listener)
@@ -179,22 +185,63 @@ class ServerScreen(Screen):
         # The app already shows the crash notification; only refresh the UI here.
         self.update_status(state)
 
+    def _is_external_running(self) -> bool:
+        process = self.slime.get_process(self.server.name)
+        if process is not None and process.is_running:
+            return False
+        running, pid = self.slime.store.is_running(self.server.name)
+        if process is not None and pid is not None and pid == process.pid:
+            # A stale PID file from the process this Slime instance owns.
+            return False
+        return running
+
     def update_status(self, state: ServerState | None = None) -> None:
         process = self.slime.get_process(self.server.name)
-        if state is None:
-            state = process.state if process is not None else ServerState.STOPPED
-        color = _STATE_COLORS[state]
-        pid = f" · pid {process.pid}" if process is not None and process.pid else ""
-        self.query_one("#server-status", Static).update(
-            f"[{color}]{state.value.upper()}[/{color}]{pid}"
+        external = False
+        pid: int | None = None
+        running, external_pid = self.slime.store.is_running(self.server.name)
+        stale_local = (
+            process is not None
+            and external_pid is not None
+            and external_pid == process.pid
         )
+        local_active = process is not None and (
+            process.is_running
+            or process.state in {ServerState.STARTING, ServerState.STOPPING}
+        )
+        if local_active and process is not None:
+            actual = state if state is not None else process.state
+            pid = process.pid if process.is_running else None
+        elif running and not stale_local:
+            actual = ServerState.RUNNING
+            pid = external_pid
+            external = True
+        elif process is not None:
+            actual = state if state is not None else process.state
+        else:
+            actual = state if state is not None else ServerState.STOPPED
+        color = _STATE_COLORS[actual]
+        detail = f" · pid {pid}" if pid else ""
+        if external:
+            detail = f" · external{detail}"
+        self.query_one("#server-status", Static).update(
+            f"[{color}]{actual.value.upper()}[/{color}]{detail}"
+        )
+        if external and not self._external_noted:
+            self._external_noted = True
+            self.append_line(
+                slime_message(
+                    "Server is running in another process. "
+                    "Commands and Stop use RCON."
+                )
+            )
 
         toggle = self.query_one("#toggle", Button)
-        if state in {ServerState.RUNNING, ServerState.STARTING}:
+        if actual in {ServerState.RUNNING, ServerState.STARTING}:
             toggle.label = "Stop"
             toggle.variant = "warning"
             toggle.disabled = False
-        elif state is ServerState.STOPPING:
+        elif actual is ServerState.STOPPING:
             # Already shutting down - Kill is the only way to act on it now.
             toggle.label = "Stop"
             toggle.variant = "warning"
@@ -203,18 +250,23 @@ class ServerScreen(Screen):
             toggle.label = "Start"
             toggle.variant = "success"
             toggle.disabled = False
-        self.query_one("#kill", Button).disabled = state not in {
+        self.query_one("#kill", Button).disabled = external or actual not in {
             ServerState.RUNNING,
             ServerState.STARTING,
             ServerState.STOPPING,
         }
-        self.query_one("#restart", Button).disabled = state is not ServerState.RUNNING
-        self.query_one("#command", Input).disabled = state is not ServerState.RUNNING
+        self.query_one("#restart", Button).disabled = external or (
+            actual is not ServerState.RUNNING
+        )
+        self.query_one("#command", Input).disabled = actual is not ServerState.RUNNING
 
     # ----------------------------------------------------------------- actions
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         if button_id == "toggle":
+            if self._is_external_running():
+                await self.stop_server()
+                return
             process = self.slime.get_process(self.server.name)
             if process is not None and process.state in {
                 ServerState.RUNNING,
@@ -224,8 +276,21 @@ class ServerScreen(Screen):
             else:
                 await self.start_server()
         elif button_id == "kill":
+            if self._is_external_running():
+                self.slime.notify(
+                    "Kill is only available for servers started by this Slime instance.",
+                    severity="warning",
+                )
+                return
             await self.kill_server()
         elif button_id == "restart":
+            if self._is_external_running():
+                self.slime.notify(
+                    "Restart is only available for servers started by this Slime "
+                    "instance. Use Stop, then Start.",
+                    severity="warning",
+                )
+                return
             await self.restart_server()
         elif button_id == "edit":
             self.open_editor()
@@ -235,6 +300,14 @@ class ServerScreen(Screen):
             self.action_back()
 
     async def start_server(self, extra_args: list[str] | None = None) -> None:
+        if self._is_external_running():
+            self.slime.notify(
+                "Server is already running in another process. Use Stop to shut "
+                "it down through RCON.",
+                severity="warning",
+            )
+            self.update_status()
+            return
         if extra_args is None and self.server.world_reset_suggested:
             self.slime.push_screen(
                 HoldConfirmScreen(
@@ -326,6 +399,7 @@ class ServerScreen(Screen):
             await self.slime.stop_server(self.server.name)
         except SlimeError as error:
             self.slime.notify_error(error)
+            self.update_status()
             return
         self.append_line(slime_message("Server stopped."))
         self.update_status(ServerState.STOPPED)
@@ -378,15 +452,27 @@ class ServerScreen(Screen):
             return
         event.input.value = ""
         process = self.slime.get_process(self.server.name)
-        if process is None or not process.is_running:
-            self.slime.notify("The server is not running.", severity="warning")
+        if process is not None and process.is_running:
+            try:
+                await process.send(command)
+            except SlimeError as error:
+                self.slime.notify_error(error)
+                return
+            self.append_line(f"> {command}")
             return
+
+        if not self.slime.store.is_running(self.server.name)[0]:
+            self.slime.notify("The server is not running.", severity="warning")
+            self.update_status()
+            return
+        self.append_line(f"> {command}")
         try:
-            await process.send(command)
+            output = await self.slime.send_remote_command(self.server, command)
         except SlimeError as error:
             self.slime.notify_error(error)
             return
-        self.append_line(f"> {command}")
+        for line in output.splitlines():
+            self.append_line(line)
 
     def action_back(self) -> None:
         self.slime.pop_screen()

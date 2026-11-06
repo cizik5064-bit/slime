@@ -12,6 +12,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Select, Static
 
@@ -112,28 +113,41 @@ class JavaScreen(Screen):
                 self.slime.java_manager.client.lts_releases
             )
         except SlimeError as error:
-            if not select.is_mounted:
+            if not self._can_update(select):
                 return
-            select.set_options(
-                [(f"Java {major}", str(major)) for major in FALLBACK_RELEASES]
-            )
-            select.value = "21"
-            self.query_one("#java-status", Static).update(
-                f"Adoptium unavailable: {escape(error.message)}. Showing common versions."
-            )
+            try:
+                select.set_options(
+                    [(f"Java {major}", str(major)) for major in FALLBACK_RELEASES]
+                )
+                select.value = "21"
+                self.query_one("#java-status", Static).update(
+                    f"Adoptium unavailable: {escape(error.message)}. Showing common versions."
+                )
+            except NoMatches:
+                return
             return
         # The screen may have been closed while Adoptium was queried.
-        if not select.is_mounted:
+        if not self._can_update(select):
             return
         lts_set = set(lts)
-        select.set_options(
-            [
-                (f"Java {major}" + (" · LTS" if major in lts_set else ""), str(major))
-                for major in releases
-            ]
-        )
         preferred = "21" if 21 in releases else str(releases[-1])
-        select.value = preferred
+        try:
+            select.set_options(
+                [
+                    (
+                        f"Java {major}" + (" · LTS" if major in lts_set else ""),
+                        str(major),
+                    )
+                    for major in releases
+                ]
+            )
+            select.value = preferred
+        except NoMatches:
+            # The Select's internal overlay is gone during a screen pop.
+            return
+
+    def _can_update(self, select: Select) -> bool:
+        return self.is_current and select.is_mounted
 
     # ----------------------------------------------------------------- events
     async def on_button_pressed(self, event: Button.Pressed) -> None:

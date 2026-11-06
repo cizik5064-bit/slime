@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-06
+
+### Fixed
+
+- Closing the Java screen while Adoptium releases are still loading no longer
+  crashes the app with `WorkerFailed: NoMatches`. The worker now checks that
+  the screen is current and catches a missing `Select` overlay during a screen
+  pop. Added a deterministic regression test that blocks the release query and
+  closes the screen before releasing it.
+
 ## [1.9.0] - 2026-11-06
 
 ### Added
@@ -342,7 +352,8 @@ never published. Slime is distributed as `slime-mc` on PyPI and installs the
   manually.
 - Windows 7 / 8 / 8.1 are not supported by this branch.
 
-[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/cizik5064-bit/slime/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/cizik5064-bit/slime/releases/tag/v1.9.1
 [1.9.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.9.0
 [1.8.1]: https://github.com/cizik5064-bit/slime/releases/tag/v1.8.1
 [1.8.0]: https://github.com/cizik5064-bit/slime/releases/tag/v1.8.0

@@ -84,6 +84,34 @@ async def wait_for(predicate, timeout: float = 5.0) -> None:
         await asyncio.sleep(0.02)
 
 
+async def test_java_screen_close_while_releases_are_loading(tmp_path: Path) -> None:
+    import threading
+
+    app, manager = prepare_app(tmp_path)
+    gate = threading.Event()
+
+    class SlowClient(FakeClient):
+        def releases(self) -> list[int]:
+            gate.wait(5)
+            return super().releases()
+
+        def lts_releases(self) -> list[int]:
+            gate.wait(5)
+            return super().lts_releases()
+
+    manager.client = SlowClient()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#java")
+        await pilot.pause()
+        app.pop_screen()
+        await pilot.pause()
+        gate.set()
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+
 async def test_java_screen_lists_managed_and_system_runtimes(tmp_path: Path) -> None:
     app, _manager = prepare_app(tmp_path)
 

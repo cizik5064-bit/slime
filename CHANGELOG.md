@@ -7,13 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-06
+
+### Added
+
+- Plugin and mod browser backed by Modrinth and Hangar. Search results are
+  filtered by the server's Minecraft version and loader, and only compatible
+  content is shown.
+- `slime content search`, `slime content install`, `slime content list` and
+  `slime content remove`. Installation resolves required dependencies
+  recursively, verifies SHA-256/SHA-512 checksums, and refuses duplicate
+  projects, file names or hashes.
+- Installed content is recorded in `slime-content.json`, including source,
+  project id, version id and hash.
+- Loader capabilities on `Project` (`supports_plugins`, `supports_mods`,
+  `content_directories`, `modrinth_loaders`, `hangar_platform`).
+
 ### Changed
 
+- Backups now include `plugins/` and `mods/` only when the server's loader
+  supports them; `config/` is still always included. This prevents backing up
+  folders a project cannot load.
 - Documented and covered by tests that backups include every root-level server
   file (except the server jar, Slime metadata and nested archives), including
   `server.properties`, `eula.txt`, `ops.json`, `whitelist.json`,
   `banned-players.json`, `banned-ips.json`, `usercache.json`, `paper.json`,
-  `bukkit.yml` and `spigot.yml`. No runtime behavior changed.
+  `bukkit.yml` and `spigot.yml`.
+- Added `modrinth_base_url` and `hangar_base_url` settings to `config.toml`.
+
+### Fixed
+
+- TUI workers no longer touch widgets after their screen was closed, fixing a
+  flaky `WorkerFailed: NoMatches` crash on the Java, Doctor and Backups
+  screens.
 
 ## [1.8.1] - 2026-11-05
 

@@ -47,6 +47,56 @@ class Project(StrEnum):
     def kind(self) -> str:
         return "proxy" if self.is_proxy else "server"
 
+    @property
+    def supports_plugins(self) -> bool:
+        """Whether the project loads Bukkit-style plugins from ``plugins/``."""
+        return self in _PLUGIN_PROJECTS
+
+    @property
+    def supports_mods(self) -> bool:
+        """Whether the project loads mods from ``mods/``."""
+        return self in _MOD_PROJECTS
+
+    @property
+    def content_directories(self) -> tuple[str, ...]:
+        """Content folders that make sense for this project.
+
+        Used by backups and by the plugin/mod browser so a project never gets
+        folders its loader cannot read.
+        """
+        directories: list[str] = []
+        if self.supports_plugins:
+            directories.append("plugins")
+        if self.supports_mods:
+            directories.append("mods")
+        return tuple(directories)
+
+    @property
+    def modrinth_loaders(self) -> tuple[str, ...]:
+        """Modrinth loader categories compatible with this project.
+
+        Parent platforms are included because Paper/Purpur run Bukkit plugins
+        and Waterfall runs BungeeCord plugins.
+        """
+        return {
+            Project.PAPER: ("paper", "spigot", "bukkit"),
+            Project.PURPUR: ("purpur", "paper", "spigot", "bukkit"),
+            Project.FOLIA: ("folia",),
+            Project.VELOCITY: ("velocity",),
+            Project.WATERFALL: ("waterfall", "bungeecord"),
+        }[self]
+
+    @property
+    def hangar_platform(self) -> str:
+        """Hangar platform id (``PAPER``, ``VELOCITY`` or ``WATERFALL``)."""
+        return {
+            Project.PAPER: "PAPER",
+            Project.FOLIA: "PAPER",
+            Project.PURPUR: "PAPER",
+            Project.VELOCITY: "VELOCITY",
+            Project.WATERFALL: "WATERFALL",
+        }[self]
+
     @classmethod
     def parse(cls, value: str | Project) -> Project:
         if isinstance(value, Project):
@@ -62,6 +112,12 @@ class Project(StrEnum):
 
 
 PROJECTS: tuple[Project, ...] = tuple(Project)
+
+#: Loader capabilities. Every supported project currently loads plugins; Slime
+#: does not ship a mod-loader project yet, but the sets keep backups and the
+#: content browser honest if one is added later.
+_PLUGIN_PROJECTS: frozenset[Project] = frozenset(Project)
+_MOD_PROJECTS: frozenset[Project] = frozenset()
 
 #: Aikar's "performant" JVM flags, used as the default for new servers.
 #: See https://mcflags.emc.gs/ for the reasoning behind every value.
@@ -346,6 +402,106 @@ class BuildInfo:
         raise ValidationError(
             f"Build {self.project} {self.version} #{self.build} has no downloadable files."
         )
+
+
+# ---------------------------------------------------------------------------
+# Plugin and mod content
+# ---------------------------------------------------------------------------
+
+
+class ContentSource(StrEnum):
+    """Remote service a piece of content comes from."""
+
+    MODRINTH = "modrinth"
+    HANGAR = "hangar"
+
+
+class ContentKind(StrEnum):
+    """Kind of content, matching the folder it is installed into."""
+
+    PLUGIN = "plugin"
+    MOD = "mod"
+
+    @property
+    def directory(self) -> str:
+        return "plugins" if self is ContentKind.PLUGIN else "mods"
+
+
+@dataclass(slots=True)
+class ContentHit:
+    """One search result from Modrinth or Hangar."""
+
+    source: ContentSource
+    project_id: str
+    slug: str
+    name: str
+    description: str
+    author: str
+    downloads: int
+    kind: ContentKind
+    url: str = ""
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} ({self.author})" if self.author else self.name
+
+
+@dataclass(slots=True)
+class ContentDependency:
+    """A required or optional dependency declared by a content version."""
+
+    name: str
+    project_id: str | None = None
+    version_id: str | None = None
+    source: ContentSource | None = None
+    required: bool = True
+
+
+@dataclass(slots=True)
+class ContentVersion:
+    """A downloadable file for a project, filtered to the server's runtime."""
+
+    source: ContentSource
+    project_id: str
+    version_id: str
+    name: str
+    version_number: str
+    filename: str
+    download_url: str
+    game_versions: tuple[str, ...] = ()
+    loaders: tuple[str, ...] = ()
+    sha512: str | None = None
+    sha256: str | None = None
+    size: int | None = None
+    channel: str = "release"
+    dependencies: tuple[ContentDependency, ...] = ()
+    requires_manual_download: bool = False
+
+    @property
+    def required_dependencies(self) -> tuple[ContentDependency, ...]:
+        return tuple(dep for dep in self.dependencies if dep.required)
+
+
+@dataclass(slots=True)
+class InstalledContent:
+    """A jar found in a server's ``plugins/`` or ``mods/`` directory."""
+
+    path: str
+    filename: str
+    kind: ContentKind
+    size: int = 0
+    sha512: str = ""
+    source: ContentSource | None = None
+    project_id: str = ""
+    version_id: str = ""
+    name: str = ""
+
+    @property
+    def identity(self) -> str:
+        """Stable key used for duplicate checks."""
+        if self.project_id:
+            return f"{self.source or ''}:{self.project_id}"
+        return self.filename.lower()
 
 
 # ---------------------------------------------------------------------------

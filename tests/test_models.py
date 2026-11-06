@@ -41,6 +41,12 @@ class TestProject:
         assert Project.WATERFALL.kind == "proxy"
         assert Project.FOLIA.kind == "server"
 
+    def test_loader_capabilities(self) -> None:
+        for project in Project:
+            assert project.supports_plugins is True
+            assert project.supports_mods is False
+            assert project.content_directories == ("plugins",)
+
 
 class TestValidation:
     @pytest.mark.parametrize("name", ["survival", "my-server", "a", "A_1", "x" * 32])

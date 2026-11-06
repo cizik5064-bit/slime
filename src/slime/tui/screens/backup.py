@@ -110,7 +110,10 @@ class BackupScreen(Screen):
         try:
             backups = await asyncio.to_thread(self.manager.list, self.server.name)
         except (SlimeError, OSError) as error:
-            self.slime.notify_error(error)
+            if self.is_mounted:
+                self.slime.notify_error(error)
+            return
+        if not self.is_mounted:
             return
         self._backups = backups
         table = self.query_one("#backup-table", DataTable)

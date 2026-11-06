@@ -112,6 +112,8 @@ class JavaScreen(Screen):
                 self.slime.java_manager.client.lts_releases
             )
         except SlimeError as error:
+            if not select.is_mounted:
+                return
             select.set_options(
                 [(f"Java {major}", str(major)) for major in FALLBACK_RELEASES]
             )
@@ -119,6 +121,9 @@ class JavaScreen(Screen):
             self.query_one("#java-status", Static).update(
                 f"Adoptium unavailable: {escape(error.message)}. Showing common versions."
             )
+            return
+        # The screen may have been closed while Adoptium was queried.
+        if not select.is_mounted:
             return
         lts_set = set(lts)
         select.set_options(

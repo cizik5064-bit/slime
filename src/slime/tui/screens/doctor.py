@@ -75,6 +75,8 @@ class DoctorScreen(Screen):
             )
             return
 
+        if not self.is_mounted:
+            return
         table = self.query_one("#checks-table", DataTable)
         table.clear()
         for result in results:

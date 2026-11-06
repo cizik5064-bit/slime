@@ -36,11 +36,16 @@ from .api.purpur import PurpurClient
 from .backup import BackupInfo, BackupManager
 from .checks import CheckResult, CheckStatus, has_failures, run_checks, summarize
 from .config import Config, Settings
-from .errors import JavaError, ServerError, SlimeError
+from .content import ContentManager
+from .errors import ContentError, JavaError, ServerError, SlimeError
 from .java import JavaManager
 from .logging_setup import setup_logging
 from .models import (
     PROJECTS,
+    ContentHit,
+    ContentKind,
+    ContentSource,
+    ContentVersion,
     JavaInstall,
     Project,
     Server,
@@ -72,6 +77,7 @@ class AppContext:
         self._java: JavaManager | None = None
         self._provisioner: Provisioner | None = None
         self._backups: BackupManager | None = None
+        self._content: ContentManager | None = None
 
     @property
     def store(self) -> ServerStore:
@@ -116,6 +122,12 @@ class AppContext:
         if self._backups is None:
             self._backups = BackupManager(self.config, self.store)
         return self._backups
+
+    @property
+    def content(self) -> ContentManager:
+        if self._content is None:
+            self._content = ContentManager(self.config, self.store)
+        return self._content
 
 
 def _ctx(context: typer.Context) -> AppContext:
@@ -181,10 +193,16 @@ backup_app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+content_app = typer.Typer(
+    help="Search, install and remove plugins or mods (Modrinth and Hangar).",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 app.add_typer(server_app, name="server")
 app.add_typer(java_app, name="java")
 app.add_typer(config_app, name="config")
 app.add_typer(backup_app, name="backup")
+app.add_typer(content_app, name="content")
 
 
 @app.callback()
@@ -1338,6 +1356,260 @@ def backup_path(
             console.print(str(app_context.backups.directory(name)))
         else:
             console.print(str(app_context.backups.root))
+
+
+# ---------------------------------------------------------------------------
+# Content (plugins and mods)
+# ---------------------------------------------------------------------------
+
+
+def _print_content_table(hits: list[ContentHit]) -> None:
+    table = Table(title="Search results", header_style="bold")
+    table.add_column("Name", style="bold")
+    table.add_column("Source")
+    table.add_column("Author")
+    table.add_column("Downloads", justify="right")
+    table.add_column("Kind")
+    table.add_column("Slug")
+    for hit in hits:
+        table.add_row(
+            escape(hit.name),
+            hit.source.value,
+            escape(hit.author or "-"),
+            f"{hit.downloads:,}",
+            hit.kind.value,
+            escape(hit.slug),
+        )
+    console.print(table)
+
+
+@content_app.command("search")
+def content_search(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    query: Annotated[str, typer.Argument(help="Search phrase.")],
+    source: Annotated[
+        ContentSource | None,
+        typer.Option("--source", help="Limit results to one service."),
+    ] = None,
+    kind: Annotated[
+        ContentKind | None,
+        typer.Option("--kind", help="Search plugins or mods."),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", min=1, max=100, help="Maximum results."),
+    ] = 20,
+) -> None:
+    """Search content compatible with the server's version and loader."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        hits = app_context.content.search(
+            server, query, source=source, kind=kind, limit=limit
+        )
+    if not hits:
+        console.print("[dim]No compatible content found.[/dim]")
+        return
+    _print_content_table(hits)
+
+
+@content_app.command("install")
+def content_install(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    project: Annotated[str, typer.Argument(help="Project slug, id or search phrase.")],
+    source: Annotated[
+        ContentSource | None,
+        typer.Option("--source", help="Limit the lookup to one service."),
+    ] = None,
+    kind: Annotated[
+        ContentKind | None,
+        typer.Option("--kind", help="Install a plugin or a mod."),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option("--version", "-v", help="Version id or number (default: latest)."),
+    ] = None,
+    no_deps: Annotated[
+        bool,
+        typer.Option("--no-deps", help="Do not install required dependencies."),
+    ] = False,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Replace an already installed version."),
+    ] = False,
+) -> None:
+    """Install a plugin or mod plus its required dependencies."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        if app_context.store.is_running(name)[0]:
+            raise ServerError(
+                f"Cannot install content while '{name}' is running.",
+                hint="Stop the server first so the jar can be replaced safely.",
+            )
+        manager = app_context.content
+        hit = manager.find(server, project, source=source, kind=kind)
+        content_kind = kind or hit.kind
+        if version:
+            versions = manager.versions(server, hit, kind=content_kind)
+            matches = [
+                candidate
+                for candidate in versions
+                if version in {candidate.version_id, candidate.version_number}
+            ]
+            if not matches:
+                raise ContentError(
+                    f"Version '{version}' of {hit.name} is not compatible.",
+                    hint="Run `slime content search` to see the project, then "
+                    "pick a version id from its page.",
+                )
+            chosen: ContentVersion = matches[0]
+        else:
+            chosen = manager.latest_version(server, hit, kind=content_kind)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                f"Installing {chosen.filename}", total=None
+            )
+
+            def on_progress(done: int, total: int | None) -> None:
+                progress.update(task, completed=done, total=total)
+
+            result = manager.install(
+                server,
+                chosen,
+                kind=content_kind,
+                with_dependencies=not no_deps,
+                overwrite=overwrite,
+                progress=on_progress,
+            )
+
+    for item in result.installed:
+        console.print(
+            f"[green]Installed[/green] {escape(item.name)} "
+            f"({escape(item.filename)}) into {escape(item.kind.directory)}/"
+        )
+    for message in result.skipped:
+        console.print(f"[yellow]Skipped[/yellow] {escape(message)}")
+    for message in result.warnings:
+        console.print(f"[yellow]Warning[/yellow] {escape(message)}")
+    if not result.installed and not result.skipped:
+        console.print("[dim]Nothing was installed.[/dim]")
+
+
+@content_app.command("list")
+def content_list(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Print machine-readable JSON.")
+    ] = False,
+) -> None:
+    """List jars installed in plugins/ and mods/."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        installed = app_context.content.installed(server)
+    if as_json:
+        console.print_json(
+            data=[
+                {
+                    "file": item.filename,
+                    "kind": item.kind.value,
+                    "size": item.size,
+                    "source": item.source.value if item.source else "",
+                    "project_id": item.project_id,
+                    "version_id": item.version_id,
+                    "name": item.name,
+                }
+                for item in installed
+            ]
+        )
+        return
+    if not installed:
+        console.print("[dim]No plugins or mods installed.[/dim]")
+        return
+    table = Table(title=f"Content in '{server.name}'", header_style="bold")
+    table.add_column("File", style="bold")
+    table.add_column("Kind")
+    table.add_column("Source")
+    table.add_column("Project")
+    table.add_column("Version")
+    table.add_column("Size", justify="right")
+    for item in installed:
+        table.add_row(
+            escape(item.filename),
+            item.kind.value,
+            item.source.value if item.source else "-",
+            escape(item.project_id or item.name),
+            escape(item.version_id or "-"),
+            f"{item.size:,} B",
+        )
+    console.print(table)
+
+
+@content_app.command("remove")
+def content_remove(
+    context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Server name.")],
+    project: Annotated[str, typer.Argument(help="File name, project id or name.")],
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")
+    ] = False,
+) -> None:
+    """Remove an installed plugin or mod."""
+    app_context = _ctx(context)
+    with _errors():
+        server = app_context.store.get(name)
+        if app_context.store.is_running(name)[0]:
+            raise ServerError(
+                f"Cannot remove content while '{name}' is running.",
+                hint="Stop the server first.",
+            )
+        installed = app_context.content.installed(server)
+        match = next(
+            (
+                item
+                for item in installed
+                if project.strip().lower()
+                in {
+                    item.filename.lower(),
+                    Path(item.filename).stem.lower(),
+                    item.project_id.lower(),
+                    item.name.lower(),
+                }
+            ),
+            None,
+        )
+        if match is None:
+            raise ContentError(
+                f"'{project}' is not installed on this server.",
+                hint=f"Run `slime content list {name}` to see installed files.",
+            )
+        if not yes:
+            if not sys.stdin.isatty():
+                raise ServerError(
+                    "Refusing to remove content without confirmation.",
+                    hint="Pass --yes to remove non-interactively.",
+                )
+            if not Confirm.ask(
+                f"Remove {match.filename} from '{server.name}'?", default=False
+            ):
+                console.print("Cancelled.")
+                raise typer.Exit()
+        removed = app_context.content.remove(server, match.filename)
+    console.print(f"[green]Removed[/green] {escape(removed.filename)}.")
 
 
 # ---------------------------------------------------------------------------

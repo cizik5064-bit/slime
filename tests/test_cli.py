@@ -673,3 +673,116 @@ def test_no_subcommand_without_a_tty_prints_help(
     result = runner.invoke(app, [])
     assert result.exit_code == 0, result.output
     assert "Usage" in result.output
+
+
+class FakeContentManager:
+    def __init__(self) -> None:
+        from slime.content import InstallResult
+        from slime.models import (
+            ContentHit,
+            ContentKind,
+            ContentSource,
+            ContentVersion,
+            InstalledContent,
+        )
+
+        self.hit = ContentHit(
+            source=ContentSource.MODRINTH,
+            project_id="abc",
+            slug="example",
+            name="Example Plugin",
+            description="Does things",
+            author="Someone",
+            downloads=1234,
+            kind=ContentKind.PLUGIN,
+        )
+        self.version = ContentVersion(
+            source=ContentSource.MODRINTH,
+            project_id="abc",
+            version_id="ver1",
+            name="1.0",
+            version_number="1.0",
+            filename="example.jar",
+            download_url="https://cdn.example/example.jar",
+        )
+        self.item = InstalledContent(
+            path="/tmp/example.jar",
+            filename="example.jar",
+            kind=ContentKind.PLUGIN,
+            size=10,
+            source=ContentSource.MODRINTH,
+            project_id="abc",
+            version_id="ver1",
+            name="Example Plugin",
+        )
+        self.result = InstallResult(installed=[self.item])
+
+    def search(self, *args: object, **kwargs: object) -> list[object]:
+        return [self.hit]
+
+    def find(self, *args: object, **kwargs: object) -> object:
+        return self.hit
+
+    def latest_version(self, *args: object, **kwargs: object) -> object:
+        return self.version
+
+    def versions(self, *args: object, **kwargs: object) -> list[object]:
+        return [self.version]
+
+    def install(self, *args: object, **kwargs: object) -> object:
+        return self.result
+
+    def installed(self, *args: object, **kwargs: object) -> list[object]:
+        return [self.item]
+
+    def remove(self, *args: object, **kwargs: object) -> object:
+        return self.item
+
+
+def test_content_search_install_list_and_remove(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_server(home)
+    monkeypatch.setattr(
+        "slime.cli.ContentManager", lambda *args, **kwargs: FakeContentManager()
+    )
+
+    result = runner.invoke(app, ["content", "search", "survival", "example"])
+    assert result.exit_code == 0, result.output
+    assert "Example Plugin" in result.output
+
+    result = runner.invoke(app, ["content", "install", "survival", "example"])
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    assert "example.jar" in result.output
+
+    result = runner.invoke(app, ["content", "list", "survival"])
+    assert result.exit_code == 0, result.output
+    assert "example.jar" in result.output
+
+    result = runner.invoke(app, ["content", "list", "survival", "--json"])
+    assert result.exit_code == 0, result.output
+    assert "example.jar" in result.output
+
+    result = runner.invoke(
+        app, ["content", "remove", "survival", "example", "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Removed" in result.output
+
+
+def test_content_install_refuses_running_server(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from slime.store import ServerStore
+
+    _prepare_server(home)
+    monkeypatch.setattr(
+        "slime.cli.ContentManager", lambda *args, **kwargs: FakeContentManager()
+    )
+    monkeypatch.setattr(ServerStore, "is_running", lambda self, name: (True, 42))
+
+    result = runner.invoke(app, ["content", "install", "survival", "example"])
+
+    assert result.exit_code == 1
+    assert "running" in result.output

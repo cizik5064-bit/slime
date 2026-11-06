@@ -56,6 +56,8 @@ class Settings:
     fill_base_url: str = "https://fill.papermc.io/v3"
     purpur_base_url: str = "https://api.purpurmc.org/v2/purpur"
     adoptium_base_url: str = "https://api.adoptium.net/v3"
+    modrinth_base_url: str = "https://api.modrinth.com/v2"
+    hangar_base_url: str = "https://hangar.papermc.io/api/v1"
     user_agent: str = f"Slime/{__version__} (+https://github.com/cizik5064-bit/slime)"
     request_timeout: float = 30.0
 
@@ -115,7 +117,10 @@ def _dump_settings(settings: Settings) -> str:
     )
     network = (
         "fill_base_url",
+        "purpur_base_url",
         "adoptium_base_url",
+        "modrinth_base_url",
+        "hangar_base_url",
         "user_agent",
         "request_timeout",
     )

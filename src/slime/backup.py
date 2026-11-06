@@ -1,10 +1,10 @@
 """Server backups stored as maximally compressed 7z archives.
 
-A backup contains the server worlds, ``plugins/``, ``config/`` (and ``mods/``
-when present), root-level configuration files, and ``logs/latest.log``. The
-server jar and Slime's own metadata files are intentionally excluded. Archives
-are written with LZMA2 preset 9 plus the "extreme" flag, the slowest and
-smallest 7z mode available.
+A backup contains the server worlds, ``config/``, the ``plugins/`` and/or
+``mods/`` folders the server's loader supports, root-level configuration files,
+and ``logs/latest.log``. The server jar and Slime's own metadata files are
+intentionally excluded. Archives are written with LZMA2 preset 9 plus the
+"extreme" flag, the slowest and smallest 7z mode available.
 """
 
 from __future__ import annotations
@@ -36,8 +36,9 @@ COMPRESSION_FILTERS: list[dict[str, int]] = [
 ]
 _ARCHIVE_SUFFIX = ".7z"
 _SIDECAR_SUFFIX = ".json"
-#: Directories copied in full in addition to the world folders.
-_CONTENT_DIRECTORIES = ("plugins", "config", "mods")
+#: Directories copied in full in addition to the world folders. ``plugins``
+#: and ``mods`` are added per project capability; ``config`` is always included.
+_CONTENT_DIRECTORIES = ("config",)
 #: Root-level files that should never go into a backup.
 _EXCLUDED_ROOT_NAMES = {"slime.json", "slime.pid"}
 _EXCLUDED_ROOT_SUFFIXES = (
@@ -152,7 +153,7 @@ class BackupManager:
                 f"Server directory is missing: {server_dir}",
                 hint="Recreate the server or fix its metadata.",
             )
-        files = self._collect(server.name, server_dir)
+        files = self._collect(server, server_dir)
         if not files:
             raise BackupError(
                 f"Nothing to back up in {server_dir}.",
@@ -276,10 +277,11 @@ class BackupManager:
     def restore(self, server: Server, identifier: str) -> int:
         """Restore a backup into the server directory and return file count.
 
-        World folders, ``plugins/``, ``config/`` and ``mods/`` are replaced as
-        a whole so stale files from the current state cannot survive. Other
-        root-level configuration files and ``logs/latest.log`` are overwritten
-        individually. The server jar and Slime metadata are left untouched.
+        World folders, ``config/`` and the content folders present in the
+        archive are replaced as a whole so stale files from the current state
+        cannot survive. Other root-level configuration files and
+        ``logs/latest.log`` are overwritten individually. The server jar and
+        Slime metadata are left untouched.
         """
         if self.is_running(server.name):
             raise BackupError(
@@ -339,7 +341,7 @@ class BackupManager:
 
     # ---------------------------------------------------------------- helpers
     def _collect(
-        self, server_name: str, server_dir: Path
+        self, server: Server, server_dir: Path
     ) -> builtins.list[tuple[str, Path]]:
         collected: dict[str, Path] = {}
 
@@ -350,11 +352,15 @@ class BackupManager:
                 return
             collected.setdefault(arcname, path)
 
-        for world in self.store.world_directories(server_name):
+        for world in self.store.world_directories(server.name):
             for path in self._walk_files(world):
                 add(path)
 
-        for directory_name in _CONTENT_DIRECTORIES:
+        content_directories = (
+            *_CONTENT_DIRECTORIES,
+            *server.project.content_directories,
+        )
+        for directory_name in content_directories:
             directory = server_dir / directory_name
             if directory.is_dir():
                 for path in self._walk_files(directory):

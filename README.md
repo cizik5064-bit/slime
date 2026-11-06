@@ -34,7 +34,7 @@ Slime is a Python application with a full-screen terminal UI (TUI) and a
 scriptable CLI. It helps beginners create, configure, run and troubleshoot
 Minecraft servers without hunting for jars, Java versions or API URLs.
 
-> **Status: 1.8.1.** Core features are implemented and
+> **Status: 1.9.0.** Core features are implemented and
 > covered by tests, but Slime is still young. Expect rough edges and please
 > report them on the issue tracker.
 
@@ -86,14 +86,20 @@ Or just run `slime` and use the TUI.
   A deliberate stop or kill stays **stopped**, and the console shows Slime's
   own actions (`[slime] Stopping server...`, `[slime] Server stopped.`).
 - **Backups and restore** - create maximally compressed `.7z` snapshots of a
-  stopped server (worlds, `plugins/`, `config/`, `mods/`, `logs/latest.log` and
-  every root-level file except the server jar, Slime metadata and nested
-  archives). Root files include `server.properties`, `eula.txt`, `ops.json`,
-  `whitelist.json`, `banned-players.json`, `banned-ips.json`, `usercache.json`,
-  `paper.json`, `bukkit.yml`, `spigot.yml` and any other per-server config.
+  stopped server (worlds, `config/`, the `plugins/` and/or `mods/` folders the
+  loader supports, `logs/latest.log` and every root-level file except the
+  server jar, Slime metadata and nested archives). Root files include
+  `server.properties`, `eula.txt`, `ops.json`, `whitelist.json`,
+  `banned-players.json`, `banned-ips.json`, `usercache.json`, `paper.json`,
+  `bukkit.yml`, `spigot.yml` and any other per-server config.
   List, restore and delete them from `slime backup ...` or the **Backups**
   button on the server screen. The server jar and Slime metadata are never
   included.
+- **Plugin and mod browser** - search Modrinth and Hangar for content that
+  matches the server's Minecraft version and loader, then install it into
+  `plugins/` or `mods/`. Required dependencies are resolved automatically,
+  checksums are verified, and duplicate projects, file names or hashes are
+  refused. Available from `slime content ...`; loading jars require a restart.
 - **RCON console and cross-process control** - Slime enables Minecraft's RCON
   protocol for every non-proxy server with a random password and a port derived
   from the game port. Send commands to a server started by another Slime
@@ -179,18 +185,18 @@ needed.
 Windows:
 
 ```powershell
-Get-FileHash .\slime-1.8.1-windows-x64.exe -Algorithm SHA256
-.\slime-1.8.1-windows-x64.exe --version
-.\slime-1.8.1-windows-x64.exe
+Get-FileHash .\slime-1.9.0-windows-x64.exe -Algorithm SHA256
+.\slime-1.9.0-windows-x64.exe --version
+.\slime-1.9.0-windows-x64.exe
 ```
 
 Linux:
 
 ```bash
-sha256sum -c slime-1.8.1-linux-x64.sha256
-chmod +x slime-1.8.1-linux-x64
-./slime-1.8.1-linux-x64 --version
-./slime-1.8.1-linux-x64
+sha256sum -c slime-1.9.0-linux-x64.sha256
+chmod +x slime-1.9.0-linux-x64
+./slime-1.9.0-linux-x64 --version
+./slime-1.9.0-linux-x64
 ```
 
 Compare the hash with the published `.sha256` file before running the binary.
@@ -344,12 +350,36 @@ slime backup path [NAME]
 
 `BACKUP` is the archive id shown by `slime backup list` (a unique prefix is
 enough). Create and restore require the server to be stopped so world files are
-consistent. Restore replaces worlds, `plugins/`, `config/` and `mods/`, and
+consistent. Restore replaces worlds, `config/`, and the `plugins/` and/or
+`mods/` folders present in the archive, and
 overwrites every root-level file from the archive, including `server.properties`,
 `eula.txt`, `ops.json`, `whitelist.json`, `banned-players.json`,
 `banned-ips.json`, `usercache.json`, `paper.json`, `bukkit.yml` and `spigot.yml`.
 The server jar, `slime.json` and nested archives are preserved.
 Deleting a backup removes the archive and its metadata sidecar only.
+
+### Plugins and mods
+
+```text
+slime content search NAME QUERY [--source modrinth|hangar] [--kind plugin|mod] [--limit N]
+slime content install NAME PROJECT [--source SOURCE] [--kind KIND]
+                              [--version VERSION] [--no-deps] [--overwrite]
+slime content list NAME [--json]
+slime content remove NAME PROJECT [--yes]
+```
+
+`PROJECT` may be a Modrinth/Hangar slug, a project id or a search phrase.
+Search and install are filtered by the server's Minecraft version and loader,
+so incompatible releases never appear. Installation resolves required
+dependencies recursively (use `--no-deps` to skip them), verifies the SHA-256
+and SHA-512 hashes exposed by the source, and writes the jar to `plugins/` or
+`mods/`. Duplicate projects, identical file names and matching hashes are
+skipped unless `--overwrite` is passed.
+
+What was installed is recorded in `slime-content.json` in the server directory,
+which is also included in backups. Install and remove require the server to be
+stopped; restart it to load new content. Hangar projects that only publish an
+external download are rejected with a hint to install them manually.
 
 ### Remote control (RCON)
 
@@ -547,7 +577,7 @@ services.
 - [x] First public release (1.0.0)
 - [x] Packaging on PyPI (`slime-mc`)
 - [x] Backups and restore
-- [ ] Plugin/mod browser (Modrinth / Hangar)
+- [x] Plugin/mod browser (Modrinth / Hangar)
 - [x] RCON console and cross-process server control
 - [ ] Legacy Windows 7/8.1 build
 - [x] Standalone Windows executable via Nuitka

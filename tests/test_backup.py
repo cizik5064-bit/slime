@@ -135,7 +135,11 @@ def test_list_resolve_and_delete(manager: BackupManager) -> None:
     assert manager.resolve(server.name, second.identifier) == second
     assert manager.resolve(server.name, f"{second.identifier}.7z") == second
 
-    prefix = second.identifier[: len(second.identifier) - 1]
+    prefix = next(
+        second.identifier[:index]
+        for index in range(1, len(second.identifier) + 1)
+        if not first.identifier.startswith(second.identifier[:index])
+    )
     assert manager.resolve(server.name, prefix) == second
 
     manager.delete(server.name, first.identifier)
@@ -283,3 +287,19 @@ def test_backup_includes_root_identity_and_config_files(
 
     for name, content in root_files.items():
         assert (directory / name).read_text(encoding="utf-8") == content
+
+def test_backup_skips_mods_for_plugin_only_loaders(
+    manager: BackupManager,
+) -> None:
+    server = make_server()
+    directory = prepare_server(manager, server)
+    (directory / "mods").mkdir()
+    (directory / "mods" / "example.jar").write_text("mod", encoding="utf-8")
+
+    info = manager.create(server)
+
+    with py7zr.SevenZipFile(info.path, "r") as archive:
+        names = set(archive.getnames())
+    assert "plugins/Example/config.yml" in names
+    assert "config/settings.yml" in names
+    assert not any(name.startswith("mods/") for name in names)

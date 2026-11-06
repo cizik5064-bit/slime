@@ -48,6 +48,10 @@ class BackupError(SlimeError):
     """A backup could not be created, read, restored, or deleted."""
 
 
+class ContentError(SlimeError):
+    """A plugin or mod could not be found, downloaded, or installed."""
+
+
 class RconError(ServerError):
     """An RCON connection, authentication or command failed."""
 

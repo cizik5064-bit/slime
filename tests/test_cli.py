@@ -490,7 +490,8 @@ def test_server_list_text_and_server_path(runner: CliRunner, home: Path) -> None
 
     result = runner.invoke(app, ["server", "path", "survival"])
     assert result.exit_code == 0, result.output
-    assert "survival" in result.output
+    # Rich may wrap long temporary paths; compare without whitespace.
+    assert "".join(result.output.split()).endswith("survival")
 
 
 def test_config_show_text(runner: CliRunner, home: Path) -> None:
@@ -552,9 +553,11 @@ def test_server_info_json_includes_checks(
 
 
 def test_server_info_text_reports_missing_java(
-    runner: CliRunner, home: Path
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _prepare_server(home)
+    # CI images may ship a system Java, so force the "not installed" branch.
+    monkeypatch.setattr("slime.cli.JavaManager.find_for", lambda self, server: None)
     result = runner.invoke(app, ["server", "info", "survival"])
     assert result.exit_code == 0, result.output
     assert "not installed" in result.output

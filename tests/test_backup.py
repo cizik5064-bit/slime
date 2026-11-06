@@ -250,3 +250,36 @@ def test_manager_uses_backups_directory(manager: BackupManager) -> None:
     server = make_server()
     assert manager.directory(server.name) == manager.root / server.name
     assert manager.root.name == "backups"
+
+def test_backup_includes_root_identity_and_config_files(
+    manager: BackupManager,
+) -> None:
+    server = make_server()
+    directory = prepare_server(manager, server)
+    root_files = {
+        "ops.json": '[{"uuid": "abc", "name": "admin"}]\n',
+        "whitelist.json": '[{"uuid": "def", "name": "friend"}]\n',
+        "banned-players.json": "[]\n",
+        "banned-ips.json": "[]\n",
+        "paper.json": '{"verbose": false}\n',
+        "usercache.json": '[{"name": "admin"}]\n',
+        "bukkit.yml": "settings: {}\n",
+        "spigot.yml": "settings: {}\n",
+    }
+    for name, content in root_files.items():
+        (directory / name).write_text(content, encoding="utf-8")
+
+    info = manager.create(server)
+
+    with py7zr.SevenZipFile(info.path, "r") as archive:
+        names = set(archive.getnames())
+    for name in root_files:
+        assert name in names
+
+    for name in root_files:
+        (directory / name).write_text("changed\n", encoding="utf-8")
+
+    manager.restore(server, info.identifier)
+
+    for name, content in root_files.items():
+        assert (directory / name).read_text(encoding="utf-8") == content

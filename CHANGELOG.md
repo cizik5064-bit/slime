@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Documented and covered by tests that backups include every root-level server
+  file (except the server jar, Slime metadata and nested archives), including
+  `server.properties`, `eula.txt`, `ops.json`, `whitelist.json`,
+  `banned-players.json`, `banned-ips.json`, `usercache.json`, `paper.json`,
+  `bukkit.yml` and `spigot.yml`. No runtime behavior changed.
+
 ## [1.8.1] - 2026-11-05
 
 ### Changed

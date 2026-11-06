@@ -86,9 +86,12 @@ Or just run `slime` and use the TUI.
   A deliberate stop or kill stays **stopped**, and the console shows Slime's
   own actions (`[slime] Stopping server...`, `[slime] Server stopped.`).
 - **Backups and restore** - create maximally compressed `.7z` snapshots of a
-  stopped server (worlds, `plugins/`, `config/`, `mods/`, root configs and
-  `logs/latest.log`), list them with sizes and notes, restore them in place and
-  delete old archives. Available from `slime backup ...` and the **Backups**
+  stopped server (worlds, `plugins/`, `config/`, `mods/`, `logs/latest.log` and
+  every root-level file except the server jar, Slime metadata and nested
+  archives). Root files include `server.properties`, `eula.txt`, `ops.json`,
+  `whitelist.json`, `banned-players.json`, `banned-ips.json`, `usercache.json`,
+  `paper.json`, `bukkit.yml`, `spigot.yml` and any other per-server config.
+  List, restore and delete them from `slime backup ...` or the **Backups**
   button on the server screen. The server jar and Slime metadata are never
   included.
 - **RCON console and cross-process control** - Slime enables Minecraft's RCON
@@ -342,7 +345,10 @@ slime backup path [NAME]
 `BACKUP` is the archive id shown by `slime backup list` (a unique prefix is
 enough). Create and restore require the server to be stopped so world files are
 consistent. Restore replaces worlds, `plugins/`, `config/` and `mods/`, and
-overwrites root configuration files; the jar and `slime.json` are preserved.
+overwrites every root-level file from the archive, including `server.properties`,
+`eula.txt`, `ops.json`, `whitelist.json`, `banned-players.json`,
+`banned-ips.json`, `usercache.json`, `paper.json`, `bukkit.yml` and `spigot.yml`.
+The server jar, `slime.json` and nested archives are preserved.
 Deleting a backup removes the archive and its metadata sidecar only.
 
 ### Remote control (RCON)
